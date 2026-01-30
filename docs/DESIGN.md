@@ -75,9 +75,15 @@ openteam/
 | Action | 说明 | 参数 |
 |--------|------|------|
 | status | 查看团队状态 | who?（可选，查看单人） |
-| assign | 分配任务 | who, message |
+| assign | 分配任务 | who, message, cwd?（可选，指定工作目录创建新实例） |
 | free | 让 agent 休息 | who |
 | redirect | 切换工作目录 | who, cwd |
+
+**assign 多实例支持**：
+- 不指定 cwd：使用现有实例，若无则报错
+- 指定 cwd：
+  - 若该 cwd 已有实例，使用它
+  - 若无，创建新实例并自动添加 pane 到 monitor
 
 ## 数据结构
 
@@ -156,6 +162,7 @@ openteam start <team> -d      # 后台启动
 openteam attach <team>                   # 附加到 leader
 openteam attach <team> <agent>           # 附加到指定 agent
 openteam attach <team> <agent> --watch   # 监视模式
+openteam attach <team> <agent> --cwd /path  # 附加到特定目录的实例
 
 # 监控所有 agent（2x2 分屏）
 openteam monitor <team>       # 自动检测 zellij/tmux
@@ -176,6 +183,13 @@ openteam stop <team>          # 停止团队
 - 超过 4 个时自动创建多个窗口/tab
 - 少于 4 个时，用最后一个 agent 填充剩余 pane
 - 每个 pane 运行 `attach --watch` 监视对应 agent
+
+**动态 pane 创建**：
+
+当 leader 通过 `assign` 创建新实例时：
+- 自动在 monitor 中添加新 pane
+- 每 4 个 pane 一个 tab，超过时创建新 tab
+- 新 pane 使用 `--cwd` 参数指向正确的工作目录
 
 监视模式工作流程：
 

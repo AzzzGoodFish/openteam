@@ -81,6 +81,9 @@ openteam attach myteam
 # Attach to specific agent
 openteam attach myteam architect
 
+# Attach to specific instance by cwd
+openteam attach myteam developer --cwd /path/to/project
+
 # Monitor all agents in split screen (2x2 grid)
 openteam monitor myteam           # Auto-detect zellij/tmux
 openteam monitor myteam --zellij  # Force zellij
@@ -132,7 +135,7 @@ openteam stop myteam
 | Action | Description |
 |--------|-------------|
 | `status` | View team status |
-| `assign` | Assign task (sync, wait for response) |
+| `assign` | Assign task (sync, wait for response). Use `cwd` param to create new instance |
 | `free` | Let agent rest (disconnect attach) |
 | `redirect` | Switch agent's working directory |
 
