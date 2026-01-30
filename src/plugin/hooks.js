@@ -163,7 +163,6 @@ export function createHooks() {
   const pendingPath = path.join(PATHS.AGENTS_DIR, '.pending-sessions.json');
   // Track hints already shown in this session to avoid repetition
   const shownHints = new Map(); // sessionID -> Set of "indexName/key"
-
   return {
     /**
      * Messages transform hook - add [from boss] prefix to user messages without [from xxx] tag
@@ -393,10 +392,16 @@ export function createHooks() {
      */
     systemTransform: async (input, output) => {
       const { sessionID } = input;
+
       log.debug('systemTransform called', { sessionID });
       try {
-        // Skip special requests (title generator, etc.)
         const existingSystem = output.system?.join?.('') || output.system || '';
+
+        // opencode 对同一轮会话可能调用两次 systemTransform（双实例加载），
+        // 通过检查 output 内容判断是否已注入
+        if (existingSystem.includes('<collaboration-rules>')) return;
+
+        // Skip special requests (title generator, etc.)
         if (existingSystem.includes('title generator') || existingSystem.includes('You output ONLY')) {
           log.debug('Skipping special request');
           return;
