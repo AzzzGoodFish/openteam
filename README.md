@@ -127,14 +127,14 @@ openteam stop myteam
 
 | 工具 | 描述 |
 |------|------|
-| `tell` | 发送异步通知。自动唤醒离线 agent。Leader 可广播给所有成员 |
-| `command` | 仅限 Leader：status、assign、free、redirect |
+| `msg` | 发消息（异步，像微信）。自动唤醒离线 agent。Leader 可广播 |
+| `command` | 仅限 Leader：status、free、redirect |
 
 ### 消息格式
 
 所有消息都带有 `[from xxx]` 前缀用于标识来源：
 
-- `[from pm]` - 来自 PM agent（通过 tell）
+- `[from <agent>]` - 来自其他 agent（通过 msg）
 - `[from boss]` - 来自用户直接输入（由 hook 自动标记）
 
 #### command 操作
@@ -142,7 +142,6 @@ openteam stop myteam
 | 操作 | 描述 |
 |------|------|
 | `status` | 查看团队状态 |
-| `assign` | 分配任务（同步，等待响应）。使用 `cwd` 参数可创建新实例 |
 | `free` | 让 agent 休息（断开连接） |
 | `redirect` | 切换 agent 的工作目录 |
 

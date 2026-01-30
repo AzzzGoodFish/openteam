@@ -7,7 +7,7 @@
  * - review, reread: Session operations
  *
  * Team tools:
- * - tell: Async notification
+ * - msg: Async message (like WeChat)
  * - command: Leader management commands
  */
 
@@ -19,7 +19,6 @@ import {
   findActiveServeUrl,
   getServeUrl,
   getAgentInstances,
-  findInstance,
   addInstance,
   removeInstance,
   getMonitorInfo,
@@ -38,7 +37,6 @@ import {
   fetchSession,
   fetchMessages,
   createSession,
-  postMessage,
   sessionExists,
 } from '../utils/api.js';
 
@@ -359,15 +357,15 @@ export function createToolDefs() {
 
     // ========== Team Communication ==========
 
-    tell: {
+    msg: {
       description:
-        '告诉某人一件事（异步，不等回复）。只有通过 tell 才能与其他 agent 通信，直接输出文字对方看不到。收到 [from xxx] 消息时必须用 tell 回复。Leader 可以广播给所有人。',
+        '发消息（异步，像发微信）。直接输出文字对方看不到，必须用 msg。收到 [from xxx] 消息后需用 msg 回复对方才能看到。Leader 可广播。',
       args: {
         who: tool.schema
           .string()
           .optional()
-          .describe('要告诉谁。不填或填 "all" 表示广播（仅 leader）'),
-        message: tool.schema.string().describe('要说的话'),
+          .describe('发给谁。不填或填 "all" 表示广播（仅 leader）'),
+        message: tool.schema.string().describe('消息内容'),
       },
       execute: async (args, ctx) => {
         const currentAgent = await getCurrentAgent(ctx.sessionID);
@@ -476,12 +474,11 @@ export function createToolDefs() {
 
     command: {
       description:
-        'Leader 专用指令。action: status（查看状态）、free（让人休息）、assign（分配任务）、redirect（切换目录）',
+        'Leader 专用指令。action: status（查看状态）、free（让人休息）、redirect（切换目录）',
       args: {
-        action: tool.schema.string().describe('指令：status、free、assign、redirect'),
+        action: tool.schema.string().describe('指令：status、free、redirect'),
         who: tool.schema.string().optional().describe('目标成员（status 时可选）'),
-        message: tool.schema.string().optional().describe('任务内容（assign 时用）'),
-        cwd: tool.schema.string().optional().describe('工作目录'),
+        cwd: tool.schema.string().optional().describe('工作目录（redirect 时用）'),
         alias: tool.schema.string().optional().describe('实例别名'),
       },
       execute: async (args, ctx) => {
@@ -602,100 +599,7 @@ export function createToolDefs() {
           return `${who} 已切换到 ${args.cwd}`;
         }
 
-        // ========== ASSIGN ==========
-        if (action === 'assign') {
-          if (!args.message) {
-            return 'Error: assign 需要 message 参数';
-          }
-
-          const instances = getAgentInstances(currentAgent.team, who);
-          let targetInstance = null;
-          let isNewSession = false;
-
-          // Find or create instance
-          if (instances.length > 0) {
-            if (instances.length === 1 && !args.cwd && !alias) {
-              targetInstance = instances[0];
-            } else if (args.cwd || alias) {
-              targetInstance = findInstance(currentAgent.team, who, { cwd: args.cwd, alias });
-            } else {
-              const list = instances
-                .map((i) => `  - ${i.cwd}${i.alias ? ` @${i.alias}` : ''}`)
-                .join('\n');
-              return `${who} 有多个实例，请指定 cwd 或 alias:\n${list}`;
-            }
-
-            if (targetInstance) {
-              const exists = await sessionExists(serveUrl, targetInstance.sessionId);
-              if (!exists) {
-                removeInstance(currentAgent.team, who, { cwd: targetInstance.cwd });
-                targetInstance = null;
-              }
-            }
-          }
-
-          if (!targetInstance) {
-            if (!args.cwd) {
-              return 'Error: 需要 cwd 参数来创建工作区';
-            }
-            if (!fs.existsSync(args.cwd)) {
-              return `Error: 目录不存在 - ${args.cwd}`;
-            }
-
-            const metadata = {
-              agent: `${currentAgent.team}/${who}`,
-              team: currentAgent.team,
-              role: who,
-            };
-            const session = await createSession(
-              serveUrl,
-              args.cwd,
-              `${who} 任务: ${args.message.slice(0, 20)}`,
-              metadata
-            );
-            if (!session) {
-              return 'Error: 创建会话失败';
-            }
-
-            targetInstance = { sessionId: session.id, cwd: args.cwd, alias };
-            addInstance(currentAgent.team, who, targetInstance);
-            isNewSession = true;
-          }
-
-          // Send task (sync, wait for response)
-          const targetAgent = `${currentAgent.team}/${who}`;
-
-          try {
-            const response = await postMessage(
-              serveUrl,
-              targetInstance.sessionId,
-              targetInstance.cwd,
-              targetAgent,
-              args.message
-            );
-
-            if (!response) {
-              return 'Error: 发送失败';
-            }
-
-            // Add pane to monitor AFTER message sent (so pane sees history)
-            if (isNewSession) {
-              addPaneToMonitor(currentAgent.team, who, args.cwd);
-            }
-
-            const textParts = (response.parts || [])
-              .filter((p) => p.type === 'text')
-              .map((p) => p.text)
-              .join('\n');
-
-            const sessionHint = isNewSession ? '(新任务)' : '(继续任务)';
-            return `[${who} 回复] ${sessionHint}\n${textParts || '(无回复)'}\n\n工作区: ${targetInstance.cwd}`;
-          } catch (e) {
-            return `Error: 分配失败 - ${e.message}`;
-          }
-        }
-
-        return `Error: 未知指令 "${action}"，可用: status, free, assign, redirect`;
+        return `Error: 未知指令 "${action}"，可用: status, free, redirect`;
       },
     },
   };

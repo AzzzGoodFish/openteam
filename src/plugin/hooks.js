@@ -88,16 +88,20 @@ function getCollaborationRules() {
 ### 消息来源识别
 - \`[from xxx]\` 前缀表示消息来源
 - \`[from boss]\` = 老板直接指示，优先级最高
-- \`[from pm/architect/...]\` = 来自其他 agent
+- \`[from <agent>]\` = 来自其他 agent（如 architect、developer 等）
 
 ### 通信方式
-- 只有通过 \`tell\` 工具才能与其他 agent 通信
-- 直接输出文字对方看不到
-- 收到 \`[from agent]\` 消息时必须用 \`tell\` 回复发送者
+- **直接输出文字对方看不到**，必须用 \`msg\` 工具
+- 收到 \`[from agent]\` 消息后，必须用 \`msg\` 回复对方才能看到
+
+### 任务汇报（重要）
+- **任务完成后必须用 \`msg\` 向任务分配者汇报结果**
+- 汇报内容：完成了什么、关键产出、是否有遗留问题
+- 不汇报 = 对方不知道你完成了，协作链断裂
 
 ### Boss 消息回复方式
 - 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中）
-- **禁止**用 \`tell(who="boss", ...)\`，boss 不是 agent
+- **禁止**用 \`msg(who="boss", ...)\`，boss 不是 agent
 - Boss 亲自介入通常意味着工作有偏差，需反思是否更新记忆
 
 **必须反思**：是否需要使用 \`correct\` 或 \`rethink\` 更新记忆？

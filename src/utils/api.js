@@ -62,9 +62,9 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
   const beforeMessages = await fetchMessages(serveUrl, sessionID);
   const beforeCount = beforeMessages?.length || 0;
 
-  // POST the message
+  // POST the message (use prompt_async to ensure TUI updates correctly)
   const res = await fetch(
-    `${serveUrl}/session/${sessionID}/message?directory=${encodeURIComponent(directory)}`,
+    `${serveUrl}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(directory)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

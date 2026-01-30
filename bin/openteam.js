@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Import from src
 import { PATHS, DEFAULTS } from '../src/constants.js';
-import { loadTeamConfig, getTeamLeader, listTeams, isAgentInTeam } from '../src/team/config.js';
+import { loadTeamConfig, getTeamLeader, listTeams, isAgentInTeam, validateTeamConfig } from '../src/team/config.js';
 import {
   getRuntime,
   saveRuntime,
@@ -108,7 +108,7 @@ async function getOrCreateSession(teamName, agentName, serveUrl, projectDir) {
 
   const sessionId = session.id;
 
-  // Initialize agent
+  // Initialize agent - 必须发送，用于建立会话的 agent 身份标记
   await postMessage(serveUrl, sessionId, projectDir, `${teamName}/${agentName}`, '系统初始化完成，准备就绪。');
 
   // Save active session
@@ -125,12 +125,13 @@ async function cmdStart(teamName, options) {
   const projectDir = options.dir || process.cwd();
 
   // Check team config
-  const teamConfig = loadTeamConfig(teamName);
-  if (!teamConfig) {
-    error(`团队配置不存在: ${path.join(PATHS.AGENTS_DIR, teamName, 'team.json')}`);
+  const validation = validateTeamConfig(teamName);
+  if (!validation.valid) {
+    error(`团队配置无效: ${validation.error}\n配置文件: ${path.join(PATHS.AGENTS_DIR, teamName, 'team.json')}`);
   }
 
-  const leader = teamConfig.leader || 'pm';
+  const teamConfig = loadTeamConfig(teamName);
+  const leader = teamConfig.leader;
   let host = teamConfig.host || DEFAULTS.HOST;
   let port = teamConfig.port || 0;
 
@@ -344,8 +345,8 @@ function cmdList() {
     const isRunning = runtime !== null;
 
     const status = isRunning ? `${GREEN}运行中${NC}` : `${YELLOW}已停止${NC}`;
-    const leader = teamConfig?.leader || 'pm';
-    const agents = teamConfig?.agents?.join(', ') || '-';
+    const leader = teamConfig?.leader || `${RED}未配置${NC}`;
+    const agents = teamConfig?.agents?.join(', ') || `${RED}未配置${NC}`;
 
     console.log(`${teamName}`);
     console.log(`  状态:    ${status}`);
@@ -649,7 +650,7 @@ async function cmdStatus(teamName) {
   }
 
   const teamConfig = loadTeamConfig(teamName);
-  const leader = teamConfig?.leader || 'pm';
+  const leader = teamConfig?.leader || `${RED}未配置${NC}`;
 
   console.log(`团队: ${GREEN}${teamName}${NC}`);
   console.log(`状态: ${GREEN}运行中${NC}`);

@@ -54,7 +54,32 @@ export function getTeamAgents(teamName) {
  */
 export function getTeamLeader(teamName) {
   const config = loadTeamConfig(teamName);
-  return config?.leader || 'pm';
+  return config?.leader || null;
+}
+
+/**
+ * Validate team configuration
+ * Returns { valid: true } or { valid: false, error: string }
+ */
+export function validateTeamConfig(teamName) {
+  const config = loadTeamConfig(teamName);
+  if (!config) {
+    return { valid: false, error: '团队配置不存在' };
+  }
+
+  if (!config.leader) {
+    return { valid: false, error: '未配置 leader' };
+  }
+
+  if (!config.agents || !Array.isArray(config.agents) || config.agents.length === 0) {
+    return { valid: false, error: '未配置 agents 列表' };
+  }
+
+  if (!config.agents.includes(config.leader)) {
+    return { valid: false, error: `leader "${config.leader}" 不在 agents 列表中` };
+  }
+
+  return { valid: true };
 }
 
 /**

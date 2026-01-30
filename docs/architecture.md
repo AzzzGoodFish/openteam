@@ -34,8 +34,8 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     插件层                               │
 ├─────────────────────────────────────────────────────────┤
 │  src/plugin/tools.js      │    src/plugin/hooks.js      │
-│  - 11 个工具              │    - system prompt 注入     │
-│  - remember/tell/command  │    - 记忆内容注入          │
+│  - 工具定义               │    - system prompt 注入     │
+│  - remember/msg/command   │    - 记忆内容注入          │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -83,22 +83,21 @@ Leader-Member 模式：
 
 | 角色 | 能力 |
 |------|------|
-| Leader | `command` (管理) + `tell` (可广播) |
-| Member | `tell` (点对点通信) |
+| Leader | `command` (管理) + `msg` (可广播) |
+| Member | `msg` (点对点通信) |
 
 **command 支持的 action**:
 - `status` - 查看团队状态
-- `assign` - 分配任务（可创建新实例）
 - `free` - 让 agent 休息
 - `redirect` - 切换工作目录
 
 ### 3. 插件系统 (src/plugin/)
 
-**tools.js** - 定义 11 个工具：
+**tools.js** - 工具定义：
 1. remember, correct, rethink (常驻记忆)
 2. note, lookup, erase, search (笔记)
 3. review, reread (会话)
-4. tell, command (团队)
+4. msg, command (团队)
 
 **hooks.js** - 注入 system prompt：
 - 将记忆内容注入到 agent context
@@ -142,7 +141,7 @@ memories/*.mem            # 记忆文件
 
 | 来源 | 格式 | 说明 |
 |------|------|------|
-| agent 间 | `[from pm]` | tell 工具自动添加 |
+| agent 间 | `[from <agent>]` | msg 工具自动添加 |
 | 用户直接输入 | `[from boss]` | hook 自动添加 |
 
 ## 扩展点
