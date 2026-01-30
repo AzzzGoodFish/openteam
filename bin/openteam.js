@@ -108,8 +108,8 @@ async function getOrCreateSession(teamName, agentName, serveUrl, projectDir) {
 
   const sessionId = session.id;
 
-  // Initialize agent - 必须发送，用于建立会话的 agent 身份标记
-  await postMessage(serveUrl, sessionId, projectDir, `${teamName}/${agentName}`, '系统初始化完成，准备就绪。');
+  // Initialize agent - 必须发送，用于建立会话的 agent 身份标记（不等回复）
+  await postMessage(serveUrl, sessionId, projectDir, `${teamName}/${agentName}`, '系统初始化完成，准备就绪。', { wait: false });
 
   // Save active session
   addInstance(teamName, agentName, { sessionId, cwd: projectDir });
