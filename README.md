@@ -130,6 +130,13 @@ openteam stop myteam
 | `tell` | Send async notification. Auto wakes up offline agents. Leader can broadcast to all |
 | `command` | Leader only: status, assign, free, redirect |
 
+### Message Format
+
+All messages have `[from xxx]` prefix for source identification:
+
+- `[from pm]` - from PM agent (via tell)
+- `[from boss]` - from user direct input (auto-tagged by hook)
+
 #### command actions
 
 | Action | Description |
