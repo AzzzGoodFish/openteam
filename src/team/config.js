@@ -28,20 +28,6 @@ export function loadTeamConfig(teamName) {
 }
 
 /**
- * Load agent configuration (memory blocks config)
- */
-export function loadAgentConfig(teamName, agentName) {
-  const configPath = path.join(getTeamDir(teamName), agentName, FILES.AGENT_CONFIG);
-  if (!fs.existsSync(configPath)) return null;
-
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Get list of agents in a team
  */
 export function getTeamAgents(teamName) {
@@ -88,15 +74,6 @@ export function validateTeamConfig(teamName) {
 export function isAgentInTeam(teamName, agentName) {
   const agents = getTeamAgents(teamName);
   return agents.includes(agentName);
-}
-
-/**
- * Get extractor model config from team config
- * Returns { providerID, modelID } or null
- */
-export function getExtractorModel(teamName) {
-  const config = loadTeamConfig(teamName);
-  return config?.extractor?.model || null;
 }
 
 /**

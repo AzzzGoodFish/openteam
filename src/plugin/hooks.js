@@ -7,62 +7,11 @@
  * - systemTransform: 注入团队上下文 + 协作规则
  */
 
-import { loadTeamConfig, loadAgentConfig } from '../team/config.js';
-import { findActiveServeUrl } from '../team/serve.js';
+import { loadTeamConfig } from '../team/config.js';
+import { getCurrentAgent } from '../utils/agent.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('hooks');
-
-/**
- * Parse agent name from full format (team/agent or just agent)
- */
-function parseAgentName(agentName, defaultTeam = null) {
-  if (!agentName) return null;
-
-  if (agentName.includes('/')) {
-    const [team, name] = agentName.split('/');
-    return { team, name, full: agentName };
-  }
-
-  if (defaultTeam) {
-    return { team: defaultTeam, name: agentName, full: `${defaultTeam}/${agentName}` };
-  }
-
-  return null;
-}
-
-/**
- * Get current agent from session messages
- */
-async function getCurrentAgent(sessionID, timeoutMs = 2000) {
-  try {
-    const serveUrl = findActiveServeUrl();
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const res = await fetch(`${serveUrl}/session/${sessionID}/message`, {
-        headers: { Accept: 'application/json' },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      if (!res.ok) return null;
-
-      const messages = await res.json();
-      if (!messages || messages.length === 0) return null;
-
-      const lastMsg = messages[messages.length - 1];
-      return parseAgentName(lastMsg?.info?.agent);
-    } catch {
-      clearTimeout(timeoutId);
-      return null;
-    }
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Format team members prompt
@@ -118,18 +67,30 @@ export function createHooks() {
      * Messages transform hook - add [from boss] prefix
      */
     messagesTransform: async (_input, output) => {
-      if (!output.messages || output.messages.length === 0) return;
+      if (!output.messages || output.messages.length === 0) {
+        log.debug('messagesTransform: no messages');
+        return;
+      }
+
+      log.debug('messagesTransform called', { messageCount: output.messages.length });
 
       for (let i = output.messages.length - 1; i >= 0; i--) {
         const msg = output.messages[i];
         if (msg.info?.role !== 'user') continue;
 
         const textPart = msg.parts?.find((p) => p.type === 'text' && !p.synthetic);
-        if (!textPart?.text) continue;
+        if (!textPart?.text) {
+          log.debug('messagesTransform: user msg has no text part', { index: i, partTypes: msg.parts?.map(p => p.type) });
+          continue;
+        }
 
-        if (/^\[from\s+\w+\]/.test(textPart.text)) break;
+        if (/^\[from\s+\w+\]/.test(textPart.text)) {
+          log.debug('messagesTransform: already tagged', { index: i, prefix: textPart.text.slice(0, 30) });
+          break;
+        }
 
         textPart.text = `[from boss] ${textPart.text}`;
+        log.info('messagesTransform: tagged [from boss]', { index: i, preview: textPart.text.slice(0, 50) });
         break;
       }
     },
@@ -145,13 +106,22 @@ export function createHooks() {
         const existingSystem = output.system?.join?.('') || output.system || '';
 
         // 防止双份注入
-        if (existingSystem.includes('<collaboration-rules>')) return;
+        if (existingSystem.includes('<collaboration-rules>')) {
+          log.debug('systemTransform: skip duplicate', { sessionID });
+          return;
+        }
 
         // 跳过特殊请求
-        if (existingSystem.includes('title generator') || existingSystem.includes('You output ONLY')) return;
+        if (existingSystem.includes('title generator') || existingSystem.includes('You output ONLY')) {
+          log.debug('systemTransform: skip special request', { sessionID });
+          return;
+        }
 
         const agent = await getCurrentAgent(sessionID);
-        if (!agent) return;
+        if (!agent) {
+          log.debug('systemTransform: agent not found', { sessionID });
+          return;
+        }
 
         // 注入团队成员
         const teamConfig = loadTeamConfig(agent.team);
@@ -163,6 +133,9 @@ export function createHooks() {
 
           // 注入协作规则
           (output.system ||= []).push(getCollaborationRules());
+          log.info('systemTransform: injected', { sessionID, agent: agent.full });
+        } else {
+          log.warn('systemTransform: team config not found', { sessionID, team: agent.team });
         }
       } catch (e) {
         log.error('systemTransform error', { error: e.message });

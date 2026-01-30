@@ -12,7 +12,6 @@ import { execSync } from 'child_process';
 import { tool } from '@opencode-ai/plugin';
 import { loadTeamConfig, isAgentInTeam } from '../team/config.js';
 import {
-  findActiveServeUrl,
   getServeUrl,
   getAgentInstances,
   addInstance,
@@ -20,38 +19,13 @@ import {
   getMonitorInfo,
 } from '../team/serve.js';
 import {
-  fetchMessages,
   createSession,
   sessionExists,
 } from '../utils/api.js';
+import { getCurrentAgent } from '../utils/agent.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('tools');
-
-/**
- * Parse agent name from session messages
- */
-async function getCurrentAgent(sessionID) {
-  try {
-    const serveUrl = findActiveServeUrl();
-    const messages = await fetchMessages(serveUrl, sessionID);
-    if (!messages || messages.length === 0) return null;
-
-    const lastMsg = messages[messages.length - 1];
-    const agentName = lastMsg?.info?.agent;
-
-    if (!agentName) return null;
-
-    if (agentName.includes('/')) {
-      const [team, name] = agentName.split('/');
-      return { team, name, full: agentName };
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Add a new pane to monitor for an agent instance
