@@ -33,6 +33,7 @@ import {
   clearMonitorInfo,
 } from '../src/team/serve.js';
 import { createSession, postMessage, fetchSession, sessionExists } from '../src/utils/api.js';
+import { distill } from '../src/memory/extractor.js';
 
 // Colors
 const RED = '\x1b[31m';
@@ -686,6 +687,59 @@ async function cmdStatus(teamName) {
   }
 }
 
+/**
+ * Distill command
+ */
+async function cmdDistill(teamName, agentName) {
+  if (!teamName) {
+    error('请指定团队名称');
+  }
+
+  if (!isServeRunning(teamName)) {
+    error(`团队 ${teamName} 未运行，请先执行 'openteam start ${teamName}'`);
+  }
+
+  const runtime = getRuntime(teamName);
+  if (!runtime) {
+    error(`团队 ${teamName} 未运行`);
+  }
+
+  const teamConfig = loadTeamConfig(teamName);
+  if (!teamConfig) {
+    error(`团队配置不存在: ${path.join(PATHS.AGENTS_DIR, teamName, 'team.json')}`);
+  }
+
+  if (agentName && !isAgentInTeam(teamName, agentName)) {
+    error(`团队 ${teamName} 中没有 ${agentName}，可选: ${teamConfig.agents.join(', ')}`);
+  }
+
+  const serveUrl = `http://${runtime.host}:${runtime.port}`;
+  const agents = agentName ? [agentName] : teamConfig.agents;
+
+  for (const agent of agents) {
+    const instances = getAgentInstances(teamName, agent);
+    const preferredInstance = instances.find((instance) => instance.cwd === runtime.projectDir) || instances[0];
+    const directory = preferredInstance?.cwd || runtime.projectDir || process.cwd();
+
+    if (instances.length > 1) {
+      warn(`发现多个 ${teamName}/${agent} 实例，使用目录: ${directory}`);
+    }
+
+    info(`执行 ${teamName}/${agent} 记忆蒸馏...`);
+    try {
+      const result = await distill(teamName, agent, serveUrl, directory);
+      if (result?.distilled) {
+        success(`${teamName}/${agent} 记忆蒸馏完成`);
+      } else {
+        const reason = result?.reason ? ` (${result.reason})` : '';
+        warn(`${teamName}/${agent} 记忆蒸馏失败${reason}`);
+      }
+    } catch (err) {
+      warn(`${teamName}/${agent} 记忆蒸馏异常: ${err?.message || err}`);
+    }
+  }
+}
+
 // CLI setup
 program
   .name('openteam')
@@ -729,5 +783,10 @@ program
   .option('--zellij', '强制使用 zellij')
   .option('--dir <directory>', '项目目录')
   .action(cmdMonitor);
+
+program
+  .command('distill <team> [agent]')
+  .description('触发记忆蒸馏')
+  .action(cmdDistill);
 
 program.parse();

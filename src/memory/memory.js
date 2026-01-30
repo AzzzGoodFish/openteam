@@ -113,12 +113,20 @@ export function writeMemory(teamName, agentName, memoryName, content) {
     return { success: false, error: `内容超出限制 (${content.length}/${limit})，请先整理` };
   }
 
-  const memDir = getAgentMemoryDir(teamName, agentName);
-  if (!fs.existsSync(memDir)) {
-    fs.mkdirSync(memDir, { recursive: true });
+  let memPath;
+  if (config._legacyFile) {
+    memPath = path.join(getTeamDir(teamName), agentName, config._legacyFile);
+    const memDir = path.dirname(memPath);
+    if (!fs.existsSync(memDir)) {
+      fs.mkdirSync(memDir, { recursive: true });
+    }
+  } else {
+    const memDir = getAgentMemoryDir(teamName, agentName);
+    if (!fs.existsSync(memDir)) {
+      fs.mkdirSync(memDir, { recursive: true });
+    }
+    memPath = getMemoryPath(teamName, agentName, memoryName);
   }
-
-  const memPath = getMemoryPath(teamName, agentName, memoryName);
   fs.writeFileSync(memPath, content);
 
   return { success: true };
@@ -219,7 +227,7 @@ function removeIndexEntry(teamName, agentName, indexName, key) {
   const content = readMemory(teamName, agentName, indexName) || '';
   const { entries, notes } = parseIndex(content);
 
-  if (!entries[key]) {
+  if (!(key in entries)) {
     return { success: false, error: `索引中没有 "${key}"` };
   }
 
@@ -306,6 +314,10 @@ export function searchNotes(teamName, agentName, indexName, query) {
     return { success: false, error: `笔记本 "${indexName}" 不存在` };
   }
 
+  if (!query) {
+    return { success: true, matches: [] };
+  }
+
   const content = readMemory(teamName, agentName, indexName) || '';
   const { entries } = parseIndex(content);
 
@@ -335,6 +347,128 @@ export function searchNotes(teamName, agentName, indexName, query) {
   }
 
   return { success: true, matches };
+}
+
+/**
+ * Get all writable index entries with content
+ */
+export function getMemoryInventory(teamName, agentName) {
+  const configs = loadMemoryConfig(teamName, agentName);
+  const inventory = [];
+
+  for (const config of configs) {
+    if (config.type !== MEMORY_TYPES.INDEX) continue;
+    if (config.readonly) continue;
+
+    const content = readMemory(teamName, agentName, config.name) || '';
+    if (!content) continue;
+
+    const { entries } = parseIndex(content);
+
+    for (const [key, summary] of Object.entries(entries)) {
+      const notePath = getNotePath(teamName, agentName, config.name, key);
+      const noteContent = fs.existsSync(notePath) ? fs.readFileSync(notePath, 'utf8') : '';
+
+      inventory.push({
+        index: config.name,
+        key,
+        summary,
+        content: noteContent || '',
+      });
+    }
+  }
+
+  return inventory;
+}
+
+/**
+ * Merge notes into a target key
+ */
+export function mergeNotes(teamName, agentName, indexName, sourceKeys, targetKey, content, summary) {
+  const config = getMemoryByName(teamName, agentName, indexName);
+  if (!config) {
+    return { success: false, error: `笔记本 "${indexName}" 不存在` };
+  }
+  if (config.type !== MEMORY_TYPES.INDEX) {
+    return { success: false, error: `"${indexName}" 不是笔记本类型` };
+  }
+  if (config.readonly) {
+    return { success: false, error: `笔记本 "${indexName}" 是只读的` };
+  }
+
+  if (!Array.isArray(sourceKeys)) {
+    return { success: false, error: 'sourceKeys 必须是数组' };
+  }
+
+  const uniqueSourceKeys = [];
+  const seenKeys = new Set();
+  for (const key of sourceKeys) {
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    uniqueSourceKeys.push(key);
+  }
+
+  const contentText = readMemory(teamName, agentName, indexName) || '';
+  const { entries } = parseIndex(contentText);
+  const sources = [];
+
+  for (const key of uniqueSourceKeys) {
+    if (key === targetKey) continue;
+    const notePath = getNotePath(teamName, agentName, indexName, key);
+    if (!fs.existsSync(notePath)) {
+      return { success: false, error: `笔记 "${key}" 不存在` };
+    }
+
+    sources.push({
+      key,
+      summary: entries[key] || '',
+      content: fs.readFileSync(notePath, 'utf8'),
+    });
+  }
+
+  const targetPath = getNotePath(teamName, agentName, indexName, targetKey);
+  const targetExists = fs.existsSync(targetPath) || targetKey in entries;
+  const targetSnapshot = {
+    summary: entries[targetKey] || '',
+    content: fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf8') : '',
+  };
+
+  const saveResult = saveNote(teamName, agentName, indexName, targetKey, content, summary);
+  if (!saveResult.success) {
+    return { success: false, error: saveResult.error };
+  }
+
+  const deleted = [];
+  for (const source of sources) {
+    const deleteResult = deleteNote(teamName, agentName, indexName, source.key);
+    if (!deleteResult.success) {
+      const rollbackErrors = [];
+      for (const item of sources) {
+        const restoreResult = saveNote(teamName, agentName, indexName, item.key, item.content, item.summary);
+        if (!restoreResult.success) {
+          rollbackErrors.push(`恢复笔记 "${item.key}" 失败: ${restoreResult.error}`);
+        }
+      }
+
+      if (targetExists) {
+        const restoreResult = saveNote(teamName, agentName, indexName, targetKey, targetSnapshot.content, targetSnapshot.summary);
+        if (!restoreResult.success) {
+          rollbackErrors.push(`恢复笔记 "${targetKey}" 失败: ${restoreResult.error}`);
+        }
+      } else {
+        const restoreResult = deleteNote(teamName, agentName, indexName, targetKey);
+        if (!restoreResult.success) {
+          rollbackErrors.push(`删除笔记 "${targetKey}" 失败: ${restoreResult.error}`);
+        }
+      }
+
+      const rollbackMessage = rollbackErrors.length > 0 ? `; 回滚失败: ${rollbackErrors.join('; ')}` : '';
+      return { success: false, error: `${deleteResult.error}${rollbackMessage}` };
+    }
+    deleted.push(source);
+  }
+
+  return { success: true };
 }
 
 // ========== Memory Hint (for auto-injection) ==========

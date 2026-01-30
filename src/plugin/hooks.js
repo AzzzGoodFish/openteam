@@ -12,13 +12,25 @@ import {
   formatMemoriesPrompt,
   findRelevantEntries,
   formatMemoryHints,
+  getMemoryInventory,
 } from '../memory/memory.js';
 import { saveSession, validateSessions } from '../memory/sessions.js';
-import { extractMemories } from '../memory/extractor.js';
+import {
+  consolidate,
+  distill,
+  markPendingSession,
+  readMemoryState,
+  getConsolidationThresholds,
+  getDistillationThresholds,
+  toTimestampMs,
+} from '../memory/extractor.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('hooks');
 import { fetchSession, fetchMessages } from '../utils/api.js';
+
+const lifecycleLocks = new Map();
+const lifecycleQueue = new Map();
 
 /**
  * Parse agent name from full format (team/agent or just agent)
@@ -240,28 +252,135 @@ export function createHooks() {
             return;
           }
 
-          // Update last analyzed count
+          // Update last analyzed count before checking lifecycle lock
           lastAnalyzedCount.set(sessionID, messageCount);
-          log.info('Triggering memory extraction', { sessionID, agent: agent.full, newMessages: messageCount - lastCount });
-
-          const result = await extractMemories(
-            serveUrl,
+          log.info('Recording pending session', {
             sessionID,
-            agent.team,
-            agent.name,
-            directory
-          );
+            agent: agent.full,
+            newMessages: messageCount - lastCount,
+          });
+          markPendingSession(agent.team, agent.name, sessionID, messageCount);
 
-          if (result.extracted) {
-            log.info('Memory extraction successful', {
-              agent: agent.full,
-              count: result.memories?.length || 0,
+          const runLifecycle = async (context) => {
+            const state = readMemoryState(context.agent.team);
+            const pendingSessions = (state.pendingSessions || []).filter(
+              (entry) => entry.agent === context.agent.name
+            );
+            const consolidationThresholds = getConsolidationThresholds(context.agent.team);
+            const now = Date.now();
+            const lastConsolidationMs = toTimestampMs(state.lastConsolidation);
+            const timeSinceConsolidation = lastConsolidationMs ? now - lastConsolidationMs : null;
+            const consolidationDue =
+              pendingSessions.length >= consolidationThresholds.sessionThreshold ||
+              (timeSinceConsolidation !== null &&
+                timeSinceConsolidation >= consolidationThresholds.timeThresholdMs);
+
+            if (!consolidationDue) {
+              log.debug('Consolidation thresholds not met', {
+                sessionID: context.sessionID,
+                agent: context.agent.full,
+                pendingCount: pendingSessions.length,
+                consolidationThresholds,
+              });
+              return;
+            }
+
+            log.info('Triggering memory consolidation', {
+              sessionID: context.sessionID,
+              agent: context.agent.full,
+              pendingCount: pendingSessions.length,
+              thresholds: consolidationThresholds,
             });
-          } else {
-            log.debug('No memories extracted', { reason: result.reason });
-          }
+            await consolidate(context.agent.team, context.agent.name, context.serveUrl, context.directory);
+
+            const distillationThresholds = getDistillationThresholds(context.agent.team);
+            const distillationState = readMemoryState(context.agent.team);
+            const inventory = getMemoryInventory(context.agent.team, context.agent.name);
+            const lastDistillationMs = toTimestampMs(distillationState.lastDistillation);
+            const timeSinceDistillation = lastDistillationMs ? now - lastDistillationMs : null;
+            const distillationDue =
+              (timeSinceDistillation !== null &&
+                timeSinceDistillation >= distillationThresholds.timeThresholdMs) ||
+              inventory.length >= distillationThresholds.entryThreshold;
+
+            if (!distillationDue) {
+              log.debug('Distillation thresholds not met', {
+                sessionID: context.sessionID,
+                agent: context.agent.full,
+                inventoryCount: inventory.length,
+                distillationThresholds,
+              });
+              return;
+            }
+
+            log.info('Triggering memory distillation', {
+              sessionID: context.sessionID,
+              agent: context.agent.full,
+              inventoryCount: inventory.length,
+              thresholds: distillationThresholds,
+            });
+            await distill(context.agent.team, context.agent.name, context.serveUrl, context.directory);
+          };
+
+          const runLifecycleWithLock = async (context) => {
+            const lockKey = `${context.agent.team}/${context.agent.name}`;
+            if (lifecycleLocks.has(lockKey)) {
+              const existing = lifecycleQueue.get(lockKey);
+              if (existing) {
+                const previousCount = existing.lastCounts.get(context.sessionID);
+                const nextCount = Number.isFinite(previousCount)
+                  ? Math.min(previousCount, context.lastCount)
+                  : context.lastCount;
+                existing.lastCounts.set(context.sessionID, nextCount);
+                existing.context = context;
+              } else {
+                lifecycleQueue.set(lockKey, {
+                  context,
+                  lastCounts: new Map([[context.sessionID, context.lastCount]]),
+                });
+              }
+              log.debug('Memory lifecycle already running, queued follow-up', {
+                sessionID: context.sessionID,
+                agent: context.agent.full,
+              });
+              return;
+            }
+
+            lifecycleLocks.set(lockKey, true);
+            try {
+              await runLifecycle(context);
+            } catch (e) {
+              if (context.lastCounts) {
+                for (const [queuedSessionID, queuedLastCount] of context.lastCounts.entries()) {
+                  lastAnalyzedCount.set(queuedSessionID, queuedLastCount);
+                }
+              } else {
+                lastAnalyzedCount.set(context.sessionID, context.lastCount);
+              }
+              log.error('Memory lifecycle error', { error: e.message });
+            } finally {
+              lifecycleLocks.delete(lockKey);
+              const queued = lifecycleQueue.get(lockKey);
+              if (queued) {
+                lifecycleQueue.delete(lockKey);
+                await runLifecycleWithLock({
+                  ...queued.context,
+                  lastCounts: queued.lastCounts,
+                });
+              }
+            }
+          };
+
+          await runLifecycleWithLock({
+            agent,
+            serveUrl,
+            directory,
+            sessionID,
+            lastCount,
+            lastCounts: new Map([[sessionID, lastCount]]),
+          });
         } catch (e) {
-          log.error('Memory extraction error', { error: e.message });
+          log.error('Memory lifecycle error', { error: e.message });
         }
       })();
     },
