@@ -9,7 +9,13 @@ import { createHooks } from './plugin/hooks.js';
 import { createToolDefs } from './plugin/tools.js';
 
 const OpenTeamPlugin = async (ctx) => {
-  console.error('[openteam] Plugin loading...');
+  // Only load when started via openteam (OPENTEAM_TEAM env var is set)
+  const teamName = process.env.OPENTEAM_TEAM;
+  if (!teamName) {
+    return {};
+  }
+
+  console.error(`[openteam] Plugin loading for team: ${teamName}`);
   const hooks = createHooks(ctx);
   const toolDefs = createToolDefs(ctx);
   console.error('[openteam] Plugin loaded, hooks:', Object.keys(hooks));

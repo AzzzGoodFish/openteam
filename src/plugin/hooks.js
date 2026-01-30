@@ -174,6 +174,12 @@ export function createHooks() {
      */
     systemTransform: async ({ sessionID }, output) => {
       try {
+        // Skip special requests (title generator, etc.)
+        const existingSystem = output.system?.join?.('') || output.system || '';
+        if (existingSystem.includes('title generator') || existingSystem.includes('You output ONLY')) {
+          return;
+        }
+
         const serveUrl = findActiveServeUrl();
 
         // Process pending sessions

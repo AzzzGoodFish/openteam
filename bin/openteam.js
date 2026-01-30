@@ -153,10 +153,11 @@ async function cmdStart(teamName, options) {
     console.log(`   项目: ${projectDir}`);
     console.log(`   Leader: ${leader}`);
 
-    // Start serve
+    // Start serve with OPENTEAM env var for conditional plugin loading
     const serveProcess = spawn('opencode', ['serve', '--port', String(port)], {
       detached: true,
       stdio: options.detach ? 'ignore' : 'inherit',
+      env: { ...process.env, OPENTEAM_TEAM: teamName },
     });
 
     if (options.detach) {
@@ -707,6 +708,7 @@ program
 
 program
   .command('list')
+  .alias('ls')
   .description('列出运行中的团队')
   .action(cmdList);
 
