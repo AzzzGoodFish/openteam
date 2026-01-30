@@ -37,7 +37,7 @@ src/
 │   │                    #   - messagesTransform: 给无来源消息添加 [from boss]
 │   │                    #   - systemTransform: 注入记忆和团队上下文到 system prompt
 │   │                    #   - event hook: session.idle 触发记忆生命周期（标记 → 巩固 → 蒸馏）
-│   └── tools.js         # 11 个工具实现（记忆 + 团队通信）
+│   └── tools.js         # 5 个工具实现（recall/review/reread + msg/command）
 ├── memory/
 │   ├── memory.js        # 三层记忆读写 + 记忆库存查询
 │   ├── extractor.js     # 记忆生命周期（积累/巩固/蒸馏）

@@ -35,7 +35,7 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 ├─────────────────────────────────────────────────────────┤
 │  src/plugin/tools.js      │    src/plugin/hooks.js      │
 │  - 工具定义               │    - system prompt 注入     │
-│  - remember/msg/command   │    - 记忆内容注入          │
+│  - recall/msg/command     │    - 记忆内容注入          │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -73,11 +73,8 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 | L2 | index | 索引常驻，详情按需加载 | 索引 ✅ |
 | L3 | sessions | 会话历史索引 | 索引 ✅ |
 
-**记忆工具**:
-- `remember` - 追加内容
-- `correct` - 替换部分内容
-- `rethink` - 重写整块
-- `note/lookup/erase/search` - 笔记管理
+**记忆工具**（只读，写入由自动巩固/蒸馏负责）:
+- `recall` - 跨索引搜索笔记，返回完整内容
 - `review/reread` - 会话历史
 
 **记忆生命周期**（自动维护 index 类型记忆）:
@@ -102,10 +99,9 @@ Leader-Member 模式：
 ### 3. 插件系统 (src/plugin/)
 
 **tools.js** - 工具定义：
-1. remember, correct, rethink (常驻记忆)
-2. note, lookup, erase, search (笔记)
-3. review, reread (会话)
-4. msg, command (团队)
+1. recall (笔记查阅，只读)
+2. review, reread (会话历史)
+3. msg, command (团队)
 
 **hooks.js** - 注入 system prompt：
 - 将记忆内容注入到 agent context

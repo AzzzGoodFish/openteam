@@ -350,6 +350,73 @@ export function searchNotes(teamName, agentName, indexName, query) {
 }
 
 /**
+ * Recall notes across all indexes.
+ * Supports: exact key lookup, index/key lookup, or keyword search across key+summary+content.
+ * Returns full note content for each match.
+ */
+export function recallNotes(teamName, agentName, query) {
+  if (!query) return { success: true, matches: [] };
+
+  const configs = loadMemoryConfig(teamName, agentName);
+  const queryLower = query.toLowerCase().trim();
+  const matches = [];
+
+  // Check if query looks like "index/key" exact lookup
+  const slashIdx = query.indexOf('/');
+  if (slashIdx > 0) {
+    const indexName = query.slice(0, slashIdx).trim();
+    const keyName = query.slice(slashIdx + 1).trim();
+    const result = readNote(teamName, agentName, indexName, keyName);
+    if (result.success) {
+      return { success: true, matches: [{ index: indexName, key: keyName, content: result.content }] };
+    }
+    // Not an exact match, fall through to search
+  }
+
+  for (const config of configs) {
+    if (config.type !== MEMORY_TYPES.INDEX) continue;
+
+    const content = readMemory(teamName, agentName, config.name) || '';
+    if (!content) continue;
+
+    const { entries } = parseIndex(content);
+
+    for (const [key, summary] of Object.entries(entries)) {
+      // Check exact key match first
+      if (key === query || key.toLowerCase() === queryLower) {
+        const noteContent = readNoteContent(teamName, agentName, config.name, key);
+        matches.push({ index: config.name, key, summary, content: noteContent });
+        continue;
+      }
+
+      // Keyword match in key and summary
+      if (key.toLowerCase().includes(queryLower) || summary.toLowerCase().includes(queryLower)) {
+        const noteContent = readNoteContent(teamName, agentName, config.name, key);
+        matches.push({ index: config.name, key, summary, content: noteContent });
+        continue;
+      }
+
+      // Keyword match in note content
+      const noteContent = readNoteContent(teamName, agentName, config.name, key);
+      if (noteContent.toLowerCase().includes(queryLower)) {
+        matches.push({ index: config.name, key, summary, content: noteContent });
+      }
+    }
+  }
+
+  return { success: true, matches };
+}
+
+/**
+ * Read note content (internal helper)
+ */
+function readNoteContent(teamName, agentName, indexName, key) {
+  const notePath = getNotePath(teamName, agentName, indexName, key);
+  if (!fs.existsSync(notePath)) return '';
+  return fs.readFileSync(notePath, 'utf8');
+}
+
+/**
  * Get all writable index entries with content
  */
 export function getMemoryInventory(teamName, agentName) {

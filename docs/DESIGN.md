@@ -43,7 +43,7 @@ openteam/
 ├── bin/openteam.js          # CLI 工具
 ├── src/
 │   ├── index.js             # 插件入口
-│   ├── plugin/tools.js      # 11 个工具
+│   ├── plugin/tools.js      # 5 个工具（recall/review/reread + msg/command）
 │   ├── plugin/hooks.js      # system prompt 注入
 │   ├── memory/              # 记忆系统
 │   └── team/                # 团队管理、多实例支持
@@ -52,27 +52,13 @@ openteam/
 
 ## 工具清单
 
-### 常驻记忆工具
+### 记忆工具（只读）
+
+记忆的写入由自动巩固/蒸馏系统负责，Agent 只有读取工具：
 
 | 工具 | 作用 | 参数 |
 |------|------|------|
-| remember | 追加内容到记忆 | memory, content |
-| correct | 替换记忆中的部分内容 | memory, old_text, new_text |
-| rethink | 重写整个记忆块 | memory, content |
-
-### 笔记工具
-
-| 工具 | 作用 | 参数 |
-|------|------|------|
-| note | 记笔记，自动更新索引 | index, key, content, summary? |
-| lookup | 查阅笔记详情 | index, key |
-| erase | 删除笔记 | index, key |
-| search | 搜索笔记 | index, query |
-
-### 会话工具
-
-| 工具 | 作用 | 参数 |
-|------|------|------|
+| recall | 查阅笔记详情，跨所有索引搜索，返回完整内容 | query |
 | review | 搜索历史会话 | query |
 | reread | 读取会话详情 | session_id |
 

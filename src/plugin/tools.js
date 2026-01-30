@@ -1,10 +1,9 @@
 /**
  * Plugin tools implementation
  *
- * Memory tools:
- * - remember, correct, rethink: Resident memory operations
- * - note, lookup, erase, search: Index (note) operations
- * - review, reread: Session operations
+ * Memory tools (read-only):
+ * - recall: Cross-index search returning full note content
+ * - review, reread: Session history operations
  *
  * Team tools:
  * - msg: Async message (like WeChat)
@@ -23,15 +22,7 @@ import {
   removeInstance,
   getMonitorInfo,
 } from '../team/serve.js';
-import {
-  appendMemory,
-  replaceInMemory,
-  writeMemory,
-  saveNote,
-  readNote,
-  deleteNote,
-  searchNotes,
-} from '../memory/memory.js';
+import { recallNotes } from '../memory/memory.js';
 import { searchSessions, removeSession } from '../memory/sessions.js';
 import {
   fetchSession,
@@ -154,126 +145,25 @@ function addPaneToMonitor(teamName, agentName, cwd) {
  */
 export function createToolDefs() {
   return {
-    // ========== Resident Memory Tools ==========
+    // ========== Memory Tools (read-only) ==========
 
-    remember: {
-      description: '主动记住一段信息（追加到记忆末尾）。系统会自动提取重要信息，此工具用于你想立即、明确记录的内容。',
+    recall: {
+      description: '查阅笔记。搜索所有笔记本，返回匹配笔记的完整内容。支持关键词搜索、精确 key 名、或 index/key 格式。',
       args: {
-        memory: tool.schema.string().describe('记忆名称，如 human、status'),
-        content: tool.schema.string().describe('要记住的内容'),
+        query: tool.schema.string().describe('搜索内容：关键词、笔记 key、或 index/key 格式'),
       },
       execute: async (args, ctx) => {
         const agent = await getCurrentAgent(ctx.sessionID);
         if (!agent) return 'Error: 无法确定当前 agent';
 
-        const result = appendMemory(agent.team, agent.name, args.memory, args.content);
-        if (result.success) {
-          const preview = `${args.content.slice(0, 50)}${args.content.length > 50 ? '...' : ''}`;
-          log.info(`[${agent.name}] event=memory_write memory=${args.memory} preview="${preview}"`);
-        }
-        return result.success ? '已记住' : `Error: ${result.error}`;
-      },
-    },
-
-    correct: {
-      description: '更正记忆中的某段内容。用于修正错误或更新过时信息。需要精确匹配原文。',
-      args: {
-        memory: tool.schema.string().describe('记忆名称'),
-        old_text: tool.schema.string().describe('要替换的原文（必须精确匹配）'),
-        new_text: tool.schema.string().describe('更正后的内容'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = replaceInMemory(agent.team, agent.name, args.memory, args.old_text, args.new_text);
-        return result.success ? '已更正' : `Error: ${result.error}`;
-      },
-    },
-
-    rethink: {
-      description: '重新整理一整块记忆。用于压缩冗长内容或重新组织结构。会覆盖原有内容，谨慎使用。',
-      args: {
-        memory: tool.schema.string().describe('记忆名称'),
-        content: tool.schema.string().describe('整理后的完整内容'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = writeMemory(agent.team, agent.name, args.memory, args.content);
-        return result.success ? '已重写' : `Error: ${result.error}`;
-      },
-    },
-
-    // ========== Note Tools ==========
-
-    note: {
-      description: '主动保存一条笔记。系统会自动提取重要信息，此工具用于你想立即、明确保存的较长内容。',
-      args: {
-        index: tool.schema.string().describe('笔记本名称，如 projects、specs'),
-        key: tool.schema.string().describe('笔记标识，如 jarvy、feature-login'),
-        content: tool.schema.string().describe('笔记的详细内容'),
-        summary: tool.schema.string().optional().describe('简短摘要（不填则自动截取）'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = saveNote(agent.team, agent.name, args.index, args.key, args.content, args.summary);
-        if (result.success) {
-          log.info(`[${agent.name}] event=note_write index=${args.index} key=${args.key}`);
-        }
-        return result.success ? '已记录' : `Error: ${result.error}`;
-      },
-    },
-
-    lookup: {
-      description: '查阅笔记详情。当看到 <memory-hints> 提示有相关笔记时，用此工具查看完整内容。',
-      args: {
-        index: tool.schema.string().describe('笔记本名称'),
-        key: tool.schema.string().describe('笔记标识'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = readNote(agent.team, agent.name, args.index, args.key);
-        return result.success ? result.content : `Error: ${result.error}`;
-      },
-    },
-
-    erase: {
-      description: '删除一条笔记。索引会自动更新。',
-      args: {
-        index: tool.schema.string().describe('笔记本名称'),
-        key: tool.schema.string().describe('笔记标识'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = deleteNote(agent.team, agent.name, args.index, args.key);
-        return result.success ? '已删除' : `Error: ${result.error}`;
-      },
-    },
-
-    search: {
-      description: '在笔记本中搜索。返回匹配的笔记列表。',
-      args: {
-        index: tool.schema.string().describe('笔记本名称'),
-        query: tool.schema.string().describe('搜索关键词'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = searchNotes(agent.team, agent.name, args.index, args.query);
+        const result = recallNotes(agent.team, agent.name, args.query);
         if (!result.success) return `Error: ${result.error}`;
 
         if (result.matches.length === 0) return '未找到匹配的笔记';
 
-        return result.matches.map((m) => `${m.key}: ${m.summary}`).join('\n');
+        return result.matches
+          .map((m) => `## ${m.index}/${m.key}\n\n${m.content}`)
+          .join('\n\n---\n\n');
       },
     },
 

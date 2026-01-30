@@ -10,9 +10,6 @@ import { findActiveServeUrl } from '../team/serve.js';
 import {
   loadAllMemories,
   formatMemoriesPrompt,
-  findRelevantEntries,
-  formatMemoryHints,
-  getMemoryInventory,
 } from '../memory/memory.js';
 import { saveSession, validateSessions } from '../memory/sessions.js';
 import {
@@ -127,31 +124,9 @@ function getCollaborationRules() {
 
 ### 记忆系统
 - 系统会在对话结束后**自动巩固**有价值的信息到长期记忆，你无需刻意记录
-- 当看到 \`<memory-hints>\` 提示时，说明有相关笔记可以查阅
-- 记忆工具（remember/note 等）用于**主动精细控制**，非必需
+- \`<memory>\` 中的 index 类型记忆显示了你所有笔记的摘要，需要详情时用 \`recall\` 查阅
+- 用 \`review\` 和 \`reread\` 可以回顾历史对话
 </collaboration-rules>`;
-}
-
-/**
- * Extract latest user message text from messages array
- */
-function getLatestUserMessage(messages) {
-  if (!messages || messages.length === 0) return null;
-
-  // Find the last user message
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.info?.role !== 'user') continue;
-
-    // Find first text part
-    const textPart = msg.parts?.find((p) => p.type === 'text');
-    if (textPart?.text) {
-      // Remove [from xxx] prefix if present
-      return textPart.text.replace(/^\[from\s+\w+\]\s*/, '').trim();
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -161,8 +136,6 @@ export function createHooks() {
   // Track last analyzed message count per session (instead of just processed/not)
   const lastAnalyzedCount = new Map(); // sessionID -> number of messages when last analyzed
   const pendingPath = path.join(PATHS.AGENTS_DIR, '.pending-sessions.json');
-  // Track hints already shown in this session to avoid repetition
-  const shownHints = new Map(); // sessionID -> Set of "indexName/key"
   return {
     /**
      * Messages transform hook - add [from boss] prefix to user messages without [from xxx] tag
@@ -447,39 +420,6 @@ export function createHooks() {
           const memoriesPrompt = formatMemoriesPrompt(memories);
           if (memoriesPrompt) {
             (output.system ||= []).push(memoriesPrompt);
-          }
-
-          // Memory Injector: Find and hint relevant index entries
-          // Fetch messages via API since systemTransform doesn't provide them
-          const messages = await fetchMessages(serveUrl, sessionID);
-          const userMessage = getLatestUserMessage(messages);
-          if (userMessage) {
-            const relevantEntries = findRelevantEntries(agent.team, agent.name, userMessage);
-
-            // Filter out already shown hints in this session
-            if (!shownHints.has(sessionID)) {
-              shownHints.set(sessionID, new Set());
-            }
-            const sessionShown = shownHints.get(sessionID);
-
-            const newMatches = relevantEntries.filter((entry) => {
-              const hintKey = `${entry.indexName}/${entry.key}`;
-              if (sessionShown.has(hintKey)) return false;
-              sessionShown.add(hintKey);
-              return true;
-            });
-
-            if (newMatches.length > 0) {
-              log.info('Memory hints injected', {
-                sessionID,
-                agent: agent.full,
-                hints: newMatches.map((m) => `${m.indexName}/${m.key}`),
-              });
-              const hintsPrompt = formatMemoryHints(newMatches);
-              if (hintsPrompt) {
-                (output.system ||= []).push(hintsPrompt);
-              }
-            }
           }
         }
 
