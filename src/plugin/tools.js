@@ -165,6 +165,8 @@ export function createToolDefs() {
             const exists = await sessionExists(serveUrl, inst.sessionId);
             if (exists) {
               try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
                 await fetch(
                   `${serveUrl}/session/${inst.sessionId}/prompt_async?directory=${encodeURIComponent(inst.cwd)}`,
                   {
@@ -174,8 +176,10 @@ export function createToolDefs() {
                       agent: `${currentAgent.team}/${target}`,
                       parts: [{ type: 'text', text: `[from ${currentAgent.name}] ${args.message}` }],
                     }),
+                    signal: controller.signal,
                   }
                 );
+                clearTimeout(timeoutId);
                 if (!results.includes(`${target}: 已唤醒`)) {
                   results.push(`${target}: 已通知`);
                 }

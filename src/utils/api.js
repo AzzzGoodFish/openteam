@@ -1,12 +1,33 @@
 /**
  * OpenCode Serve API wrapper
+ *
+ * 所有 fetch 调用统一带 timeout（默认 10s），防止挂起。
  */
+
+const DEFAULT_TIMEOUT = 10000;
+
+/**
+ * 带 timeout 的 fetch 封装
+ */
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
 
 /**
  * Fetch session metadata
  */
 export async function fetchSession(serveUrl, sessionID) {
-  const res = await fetch(`${serveUrl}/session/${sessionID}`, {
+  const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
@@ -17,7 +38,7 @@ export async function fetchSession(serveUrl, sessionID) {
  * Fetch messages for a session
  */
 export async function fetchMessages(serveUrl, sessionID) {
-  const res = await fetch(`${serveUrl}/session/${sessionID}/message`, {
+  const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}/message`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
@@ -28,7 +49,7 @@ export async function fetchMessages(serveUrl, sessionID) {
  * List all sessions (no directory filter)
  */
 export async function listAllSessions(serveUrl) {
-  const res = await fetch(`${serveUrl}/session`, {
+  const res = await fetchWithTimeout(`${serveUrl}/session`, {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) return [];
@@ -43,7 +64,7 @@ export async function createSession(serveUrl, directory, title, metadata = null)
   if (metadata) {
     body.metadata = metadata;
   }
-  const res = await fetch(`${serveUrl}/session?directory=${encodeURIComponent(directory)}`, {
+  const res = await fetchWithTimeout(`${serveUrl}/session?directory=${encodeURIComponent(directory)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
@@ -85,13 +106,14 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
   if (system) body.system = system;
 
   // POST the message (use prompt_async to ensure TUI updates correctly)
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${serveUrl}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(directory)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),
-    }
+    },
+    30000, // POST 给更长的 timeout
   );
 
   if (!res.ok) return null;
@@ -134,7 +156,7 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
  */
 export async function getProviders(serveUrl) {
   try {
-    const res = await fetch(`${serveUrl}/provider`, {
+    const res = await fetchWithTimeout(`${serveUrl}/provider`, {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) return null;
@@ -215,7 +237,7 @@ export async function findSmallModel(serveUrl, preferredProviderID = null) {
  */
 export async function sessionExists(serveUrl, sessionID) {
   try {
-    const res = await fetch(`${serveUrl}/session/${sessionID}`, {
+    const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}`, {
       headers: { Accept: 'application/json' },
     });
     return res.ok;
