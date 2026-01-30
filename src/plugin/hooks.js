@@ -30,6 +30,7 @@ const log = createLogger('hooks');
 import { fetchSession, fetchMessages } from '../utils/api.js';
 
 const lifecycleLocks = new Map();
+const lastEventTime = new Map();
 const lifecycleQueue = new Map();
 
 /**
@@ -192,12 +193,18 @@ export function createHooks() {
      * Event hook - track session idle and trigger memory extraction
      */
     event: async ({ event }) => {
-      log.debug('Event received', { type: event.type, sessionID: event.properties?.sessionID });
       if (event.type !== 'session.idle') return;
 
       const sessionID = event.properties?.sessionID;
-      log.info('Session idle detected', { sessionID });
       if (!sessionID) return;
+
+      // opencode 对同一个 idle 事件会调用两次 handler，去重
+      const dedupeKey = `${event.type}:${sessionID}`;
+      const now = Date.now();
+      if (lastEventTime.get(dedupeKey) && now - lastEventTime.get(dedupeKey) < 1000) return;
+      lastEventTime.set(dedupeKey, now);
+
+      log.info('Session idle detected', { sessionID });
 
       // Save to pending for session history tracking
       let pending = [];
@@ -226,19 +233,20 @@ export function createHooks() {
           if (!serveUrl) return;
 
           const agent = await getCurrentAgent(sessionID);
-          log.debug('Got agent for extraction', { agent: agent?.full });
-          if (!agent) return;
+          if (!agent) {
+            log.debug('No agent found for session', { sessionID });
+            return;
+          }
 
           // Get session directory (support both old and new API)
+          // 跨项目 session 可能查不到（不同 projectID），fallback 到 serve 启动目录
           const session = await fetchSession(serveUrl, sessionID);
-          const directory = session?.directory || session?.share?.directory;
-          log.debug('Got session', { hasDirectory: !!directory, directory });
-          if (!directory) return;
+          const directory = session?.directory || session?.share?.directory || process.cwd();
 
           // Skip system sessions (like extractor session itself)
-          // Check both metadata and title prefix since metadata may not be persisted
-          if (session.metadata?.system || session.title?.startsWith('[系统]')) {
-            log.debug('Skipping system session for extraction', { sessionID, title: session.title });
+          // session 可能为 null（跨项目时查不到），此时不是系统 session
+          if (session?.metadata?.system || session?.title?.startsWith('[系统]')) {
+            log.debug('Skipping system session', { sessionID, title: session.title });
             return;
           }
 
@@ -274,11 +282,10 @@ export function createHooks() {
                 timeSinceConsolidation >= consolidationThresholds.timeThresholdMs);
 
             if (!consolidationDue) {
-              log.debug('Consolidation thresholds not met', {
-                sessionID: context.sessionID,
+              log.info('Consolidation not due', {
                 agent: context.agent.full,
                 pendingCount: pendingSessions.length,
-                consolidationThresholds,
+                threshold: consolidationThresholds.sessionThreshold,
               });
               return;
             }
@@ -302,11 +309,10 @@ export function createHooks() {
               inventory.length >= distillationThresholds.entryThreshold;
 
             if (!distillationDue) {
-              log.debug('Distillation thresholds not met', {
-                sessionID: context.sessionID,
+              log.info('Distillation not due', {
                 agent: context.agent.full,
                 inventoryCount: inventory.length,
-                distillationThresholds,
+                threshold: distillationThresholds.entryThreshold,
               });
               return;
             }
@@ -337,8 +343,7 @@ export function createHooks() {
                   lastCounts: new Map([[context.sessionID, context.lastCount]]),
                 });
               }
-              log.debug('Memory lifecycle already running, queued follow-up', {
-                sessionID: context.sessionID,
+              log.info('Memory lifecycle queued', {
                 agent: context.agent.full,
               });
               return;
@@ -355,7 +360,7 @@ export function createHooks() {
               } else {
                 lastAnalyzedCount.set(context.sessionID, context.lastCount);
               }
-              log.error('Memory lifecycle error', { error: e.message });
+              log.error('Memory lifecycle error', { error: e.message, stack: e.stack });
             } finally {
               lifecycleLocks.delete(lockKey);
               const queued = lifecycleQueue.get(lockKey);
@@ -378,7 +383,7 @@ export function createHooks() {
             lastCounts: new Map([[sessionID, lastCount]]),
           });
         } catch (e) {
-          log.error('Memory lifecycle error', { error: e.message });
+          log.error('Memory lifecycle error', { error: e.message, stack: e.stack });
         }
       })();
     },
@@ -424,9 +429,7 @@ export function createHooks() {
           }
         }
 
-        // Get current agent
         const agent = await getCurrentAgent(sessionID);
-        log.debug('Got agent', { agent: agent?.full || 'null' });
         if (!agent) return;
 
         // Validate sessions
@@ -445,10 +448,8 @@ export function createHooks() {
           // Fetch messages via API since systemTransform doesn't provide them
           const messages = await fetchMessages(serveUrl, sessionID);
           const userMessage = getLatestUserMessage(messages);
-          log.debug('User message for hints', { userMessage: userMessage?.slice(0, 100) });
           if (userMessage) {
             const relevantEntries = findRelevantEntries(agent.team, agent.name, userMessage);
-            log.debug('Relevant entries found', { count: relevantEntries.length });
 
             // Filter out already shown hints in this session
             if (!shownHints.has(sessionID)) {

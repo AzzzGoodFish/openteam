@@ -263,7 +263,7 @@ actions:
 ```json
 {
   "extractor": {
-    "model": { ... },
+    "model": { "providerID": "anthropic", "modelID": "claude-sonnet-4-5" },
     "consolidation": {
       "sessionThreshold": 5,
       "timeThreshold": "24h"

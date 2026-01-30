@@ -7,7 +7,7 @@
 import fs from 'fs';
 import path from 'path';
 import YAML from 'yaml';
-import { createSession, postMessage, fetchMessages, fetchSession, findSmallModel } from '../utils/api.js';
+import { createSession, postMessage, fetchMessages, fetchSession } from '../utils/api.js';
 import { saveNote, readNote, deleteNote, mergeNotes, getMemoryInventory } from './memory.js';
 import { getExtractorModel, getTeamDir, loadAgentConfig, loadTeamConfig } from '../team/config.js';
 import { EXTENSIONS } from '../constants.js';
@@ -16,7 +16,6 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('extractor');
 
 const providerModelCache = new Map();
-let fallbackSmallModel = null;
 const systemSessions = new Map();
 
 const DEFAULT_STATE = {
@@ -63,7 +62,7 @@ const CONSOLIDATE_PROMPT = `你是一个记忆巩固助手。你的任务是把�
 - delete: 删除笔记
 
 ## 输出格式
-只输出 YAML，不要包含代码块。
+输出 YAML 格式的 actions 列表。可以在 YAML 前后附加简短说明，但必须包含有效的 YAML 块。
 
 actions:
   - action: create|update|append|delete
@@ -104,7 +103,7 @@ const DISTILL_PROMPT = `你是一个记忆蒸馏助手。你的任务是整理�
 - keep: 保持不变（可选）
 
 ## 输出格式
-只输出 YAML，不要包含代码块。
+输出 YAML 格式的 actions 列表。可以在 YAML 前后附加简短说明，但必须包含有效的 YAML 块。
 
 actions:
   - action: merge|rewrite|delete|keep
@@ -336,22 +335,54 @@ function stripCodeFences(text) {
   return cleaned.trim();
 }
 
-function parseActionList(text) {
-  const cleaned = stripCodeFences(text);
-  if (!cleaned) {
-    return { actions: [], error: 'empty_response' };
-  }
+// 从模型输出中提取 YAML 块：支持整段 YAML，也支持从自然语言中匹配 actions: 开头的片段
+function extractYamlBlock(text) {
+  if (!text) return null;
 
+  const cleaned = stripCodeFences(text);
+  if (!cleaned) return null;
+
+  // 先尝试整段解析
   try {
     const parsed = YAML.parse(cleaned);
-    if (!parsed) return { actions: [], error: 'empty_yaml' };
-    if (Array.isArray(parsed)) return { actions: parsed };
-    if (Array.isArray(parsed.actions)) return { actions: parsed.actions };
-    if (parsed.action) return { actions: [parsed] };
-    return { actions: [], error: 'invalid_yaml_format' };
-  } catch (error) {
-    return { actions: [], error: error.message };
+    if (parsed) return parsed;
+  } catch {
+    // 整段不是有效 YAML，尝试提取
   }
+
+  // 从文本中找 "actions:" 开头的 YAML 块
+  const match = cleaned.match(/^(actions:\s*(?:\[]|[\s\S]*?))(?:\n\n[^\s-]|\n[^\s-]|$)/m);
+  if (match) {
+    try {
+      return YAML.parse(match[1]);
+    } catch {
+      // ignore
+    }
+  }
+
+  // 最后尝试找 "actions:" 到文本结尾
+  const idx = cleaned.indexOf('actions:');
+  if (idx >= 0) {
+    try {
+      return YAML.parse(cleaned.slice(idx));
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
+function parseActionList(text) {
+  const parsed = extractYamlBlock(text);
+  if (!parsed) {
+    return { actions: [], error: text ? 'yaml_extraction_failed' : 'empty_response' };
+  }
+
+  if (Array.isArray(parsed)) return { actions: parsed };
+  if (Array.isArray(parsed.actions)) return { actions: parsed.actions };
+  if (parsed.action) return { actions: [parsed] };
+  return { actions: [], error: 'invalid_yaml_format' };
 }
 
 function normalizeKey(value) {
@@ -578,7 +609,7 @@ async function getSystemSession(serveUrl, directory, teamName, agentName, kind) 
 function getProviderEntry(providerID) {
   if (!providerID) return null;
   if (!providerModelCache.has(providerID)) {
-    providerModelCache.set(providerID, { smallModel: null, mainModel: null });
+    providerModelCache.set(providerID, { mainModel: null });
   }
   return providerModelCache.get(providerID);
 }
@@ -652,7 +683,8 @@ async function getProviderHintFromPending(serveUrl, pendingSessions) {
   }
 }
 
-async function resolveMemoryModel(teamName, serveUrl, providerHint, allowFallbackSmall = true) {
+async function resolveMemoryModel(teamName, serveUrl, providerHint) {
+  // 1. 显式配置优先
   const configuredModel = getExtractorModel(teamName);
   if (configuredModel) {
     log.info('Using configured extractor model', {
@@ -663,45 +695,22 @@ async function resolveMemoryModel(teamName, serveUrl, providerHint, allowFallbac
     return configuredModel;
   }
 
+  // 2. 用 agent 当前使用的主模型
   const providerID = providerHint?.providerID || null;
   const modelID = providerHint?.modelID || null;
 
+  if (providerID && modelID) {
+    const model = { providerID, modelID };
+    log.info('Using agent main model for memory', {
+      event: 'memory_model_selected',
+      model,
+      source: 'provider_main',
+    });
+    return model;
+  }
+
   if (providerID) {
     const entry = getProviderEntry(providerID);
-    if (modelID) {
-      entry.mainModel = { providerID, modelID };
-    }
-
-    if (entry?.smallModel) {
-      log.info('Using cached small model for provider', {
-        event: 'memory_model_selected',
-        model: entry.smallModel,
-        source: 'provider_cache',
-      });
-      return entry.smallModel;
-    }
-
-    const smallModel = await findSmallModel(serveUrl, providerID);
-    if (smallModel) {
-      entry.smallModel = smallModel;
-      log.info('Using provider small model for memory', {
-        event: 'memory_model_selected',
-        model: smallModel,
-        source: 'provider_small',
-      });
-      return smallModel;
-    }
-
-    if (modelID) {
-      const mainModel = { providerID, modelID };
-      log.info('Using provider main model for memory', {
-        event: 'memory_model_selected',
-        model: mainModel,
-        source: 'provider_main',
-      });
-      return mainModel;
-    }
-
     if (entry?.mainModel) {
       log.info('Using cached provider main model for memory', {
         event: 'memory_model_selected',
@@ -712,24 +721,12 @@ async function resolveMemoryModel(teamName, serveUrl, providerHint, allowFallbac
     }
   }
 
-  if (!allowFallbackSmall) return null;
-
-  if (!fallbackSmallModel) {
-    fallbackSmallModel = await findSmallModel(serveUrl);
-    if (fallbackSmallModel) {
-      log.info('Using fallback small model for memory', {
-        event: 'memory_model_selected',
-        model: fallbackSmallModel,
-        source: 'fallback_small',
-      });
-    } else {
-      log.warn('No small model found for memory tasks', {
-        event: 'memory_model_not_found',
-      });
-    }
-  }
-
-  return fallbackSmallModel;
+  // 3. 无法确定模型，返回 null（让 opencode 用默认模型）
+  log.warn('No memory model resolved, using opencode default', {
+    event: 'memory_model_selected',
+    source: 'default',
+  });
+  return null;
 }
 
 function buildConsolidationPrompt({ agentPrompt, inventory, pendingNarrative }) {
@@ -960,7 +957,7 @@ export async function consolidate(teamName, agentName, serveUrl, directory) {
   }
 
   const providerHint = (await getProviderHintFromPending(serveUrl, pendingSessions)) || state.lastModelHint;
-  const model = await resolveMemoryModel(teamName, serveUrl, providerHint, true);
+  const model = await resolveMemoryModel(teamName, serveUrl, providerHint);
   let response = null;
   try {
     response = await postMessage(
@@ -1058,7 +1055,7 @@ export async function distill(teamName, agentName, serveUrl, directory) {
   }
 
   const providerHint = (await getProviderHintFromPending(serveUrl, pendingSessions)) || state.lastModelHint;
-  const model = await resolveMemoryModel(teamName, serveUrl, providerHint, true);
+  const model = await resolveMemoryModel(teamName, serveUrl, providerHint);
   let response = null;
   try {
     response = await postMessage(

@@ -154,55 +154,54 @@ export async function getProviders(serveUrl) {
  * @param {string} serveUrl - OpenCode serve URL
  * @param {string} preferredProviderID - Preferred provider to search first (like opencode)
  */
+// provider.models 可能是数组或对象（key-value map），统一转为数组
+function getModelList(models) {
+  if (Array.isArray(models)) return models;
+  if (models && typeof models === 'object') return Object.values(models);
+  return [];
+}
+
 export async function findSmallModel(serveUrl, preferredProviderID = null) {
-  const providers = await getProviders(serveUrl);
+  const raw = await getProviders(serveUrl);
+  const providers = Array.isArray(raw) ? raw : raw?.all;
   if (!providers || !Array.isArray(providers)) return null;
 
-  // Priority patterns matching opencode's logic (order matters)
   const smallModelPatterns = [
-    /claude.*haiku/i,      // claude-haiku-4-5, claude-3-5-haiku, claude-3-haiku
-    /gemini.*flash/i,      // gemini-2.5-flash, gemini-flash
-    /gpt-4o-mini/i,        // gpt-4o-mini
-    /gpt.*mini/i,          // gpt-5-mini, etc
-    /gpt.*nano/i,          // gpt-5-nano
-    /mini/i,               // fallback: any mini model
-    /flash/i,              // fallback: any flash model
+    /claude.*haiku/i,
+    /gemini.*flash/i,
+    /gpt-4o-mini/i,
+    /gpt.*mini/i,
+    /gpt.*nano/i,
+    /mini/i,
+    /flash/i,
   ];
 
-  // Sort providers: preferred provider first (matching opencode behavior)
   const sortedProviders = [...providers].sort((a, b) => {
     if (a.id === preferredProviderID) return -1;
     if (b.id === preferredProviderID) return 1;
     return 0;
   });
 
-  // If preferred provider is specified, first try to find small model within it only
   if (preferredProviderID) {
     const preferredProvider = sortedProviders.find((p) => p.id === preferredProviderID);
-    if (preferredProvider?.models) {
+    const models = getModelList(preferredProvider?.models);
+    if (models.length > 0) {
       for (const pattern of smallModelPatterns) {
-        for (const model of preferredProvider.models) {
+        for (const model of models) {
           if (pattern.test(model.id) || pattern.test(model.name || '')) {
-            return {
-              providerID: preferredProvider.id,
-              modelID: model.id,
-            };
+            return { providerID: preferredProvider.id, modelID: model.id };
           }
         }
       }
     }
   }
 
-  // Fallback: search all providers
   for (const pattern of smallModelPatterns) {
     for (const provider of sortedProviders) {
-      if (!provider.models) continue;
-      for (const model of provider.models) {
+      const models = getModelList(provider.models);
+      for (const model of models) {
         if (pattern.test(model.id) || pattern.test(model.name || '')) {
-          return {
-            providerID: provider.id,
-            modelID: model.id,
-          };
+          return { providerID: provider.id, modelID: model.id };
         }
       }
     }

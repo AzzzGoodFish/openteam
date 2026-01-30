@@ -35,6 +35,4 @@ const OpenTeamPlugin = async (ctx) => {
   };
 };
 
-// Export both default and named for compatibility
 export default OpenTeamPlugin;
-export { OpenTeamPlugin };
