@@ -67,11 +67,14 @@ export async function createSession(serveUrl, directory, title, metadata = null)
  * @param {string} options.system - Custom system prompt
  */
 export async function postMessage(serveUrl, sessionID, directory, agent, message, options = {}) {
-  const { timeout = 120000, pollInterval = 500, model, system } = options;
+  const { timeout = 120000, pollInterval = 500, model, system, wait = true } = options;
 
-  // Get current message count
-  const beforeMessages = await fetchMessages(serveUrl, sessionID);
-  const beforeCount = beforeMessages?.length || 0;
+  // Get current message count (only if waiting for response)
+  let beforeCount = 0;
+  if (wait) {
+    const beforeMessages = await fetchMessages(serveUrl, sessionID);
+    beforeCount = beforeMessages?.length || 0;
+  }
 
   // Build request body
   const body = {
@@ -92,6 +95,9 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
   );
 
   if (!res.ok) return null;
+
+  // If not waiting, return immediately after sending
+  if (!wait) return { sent: true };
 
   // Poll for assistant response
   const startTime = Date.now();

@@ -7,10 +7,6 @@
 import { tool } from '@opencode-ai/plugin';
 import { createHooks } from './plugin/hooks.js';
 import { createToolDefs } from './plugin/tools.js';
-import { createLogger, setClient } from './utils/logger.js';
-
-const log = createLogger('plugin');
-
 const OpenTeamPlugin = async (ctx) => {
   // Only load when started via openteam (OPENTEAM_TEAM env var is set)
   const teamName = process.env.OPENTEAM_TEAM;
@@ -18,13 +14,8 @@ const OpenTeamPlugin = async (ctx) => {
     return {};
   }
 
-  // Set client for console logging
-  setClient(ctx.client);
-
-  log.info('Plugin loading', { team: teamName });
   const hooks = createHooks(ctx);
   const toolDefs = createToolDefs(ctx);
-  log.info('Plugin loaded', { hooks: Object.keys(hooks), tools: Object.keys(toolDefs) });
 
   // Convert tool definitions to OpenCode format
   const tools = {};

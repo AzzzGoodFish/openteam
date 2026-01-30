@@ -166,9 +166,11 @@ export function createToolDefs() {
         const agent = await getCurrentAgent(ctx.sessionID);
         if (!agent) return 'Error: 无法确定当前 agent';
 
-        log.info('remember', { agent: agent.full, memory: args.memory, contentLength: args.content.length });
         const result = appendMemory(agent.team, agent.name, args.memory, args.content);
-        if (!result.success) log.warn('remember failed', { error: result.error });
+        if (result.success) {
+          const preview = `${args.content.slice(0, 50)}${args.content.length > 50 ? '...' : ''}`;
+          log.info(`[${agent.name}] event=memory_write memory=${args.memory} preview="${preview}"`);
+        }
         return result.success ? '已记住' : `Error: ${result.error}`;
       },
     },
@@ -218,9 +220,10 @@ export function createToolDefs() {
         const agent = await getCurrentAgent(ctx.sessionID);
         if (!agent) return 'Error: 无法确定当前 agent';
 
-        log.info('note', { agent: agent.full, index: args.index, key: args.key });
         const result = saveNote(agent.team, agent.name, args.index, args.key, args.content, args.summary);
-        if (!result.success) log.warn('note failed', { error: result.error });
+        if (result.success) {
+          log.info(`[${agent.name}] event=note_write index=${args.index} key=${args.key}`);
+        }
         return result.success ? '已记录' : `Error: ${result.error}`;
       },
     },
@@ -414,14 +417,15 @@ export function createToolDefs() {
         const defaultCwd = currentInstances[0]?.cwd || process.cwd();
 
         // Send to all targets (async, don't wait for response)
-        log.info('msg sending', { from: currentAgent.full, targets, isBroadcast });
+        const msgPreview = args.message.slice(0, 30) + (args.message.length > 30 ? '...' : '');
+        log.info(`[${currentAgent.name}] event=msg_send to=${targets.join(',')} preview="${msgPreview}"`);
+        
         const results = [];
         for (const target of targets) {
           let instances = getAgentInstances(currentAgent.team, target);
 
           // If agent is offline, wake it up by creating a new session
           if (instances.length === 0) {
-            log.info('msg waking up agent', { target });
             const metadata = {
               agent: `${currentAgent.team}/${target}`,
               team: currentAgent.team,
@@ -438,10 +442,9 @@ export function createToolDefs() {
               addPaneToMonitor(currentAgent.team, target, defaultCwd);
               instances = [{ sessionId: session.id, cwd: defaultCwd }];
               results.push(`${target}: 已唤醒`);
-              log.info('msg agent woken up', { target, sessionId: session.id });
+              log.info(`[${target}] event=agent_wake`);
             } else {
               results.push(`${target}: 唤醒失败`);
-              log.warn('msg wake up failed', { target });
               continue;
             }
           }
