@@ -79,6 +79,33 @@ function formatTeamPrompt(teamConfig, currentAgentName) {
 }
 
 /**
+ * Get team collaboration rules prompt
+ */
+function getCollaborationRules() {
+  return `<collaboration-rules>
+## 团队协作规则
+
+### 消息来源识别
+- \`[from xxx]\` 前缀表示消息来源
+- \`[from boss]\` = 老板直接指示，优先级最高
+- \`[from pm/architect/...]\` = 来自其他 agent
+
+### 通信方式
+- 只有通过 \`tell\` 工具才能与其他 agent 通信
+- 直接输出文字对方看不到
+- 收到 \`[from xxx]\` 消息时必须用 \`tell\` 回复发送者
+
+### Boss 消息特别注意
+当收到 \`[from boss]\` 消息时，说明老板亲自介入。这通常意味着：
+- 工作方向可能有偏差
+- 理解可能有误
+- 需要纠正某些认知
+
+**必须反思**：是否需要使用 \`correct\` 或 \`rethink\` 更新记忆？
+</collaboration-rules>`;
+}
+
+/**
  * Create hooks for the plugin
  */
 export function createHooks() {
@@ -188,6 +215,9 @@ export function createHooks() {
           if (teamPrompt) {
             (output.system ||= []).push(teamPrompt);
           }
+
+          // Inject collaboration rules
+          (output.system ||= []).push(getCollaborationRules());
         }
       } catch (e) {
         console.error('[openteam] systemTransform error:', e.message);
