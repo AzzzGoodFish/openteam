@@ -1,25 +1,25 @@
 # OpenTeam
 
-Agent-centric team collaboration for OpenCode.
+面向 Agent 的团队协作框架，为 OpenCode 设计。
 
-## Features
+## 功能特性
 
-- **Team Collaboration**: PM can poke other agents, maintaining conversation context
-- **Memory System**: Hierarchical memory with resident blocks and indexed notes
-- **Session History**: Track and recall past conversations
-- **Team Management**: Start, stop, and monitor team serve
+- **团队协作**：PM 可以唤起其他 agent，保持对话上下文
+- **记忆系统**：层次化记忆，支持常驻块和索引笔记
+- **会话历史**：追踪和回顾历史对话
+- **团队管理**：启动、停止、监控团队服务
 
-## Installation
+## 安装
 
 ```bash
 npm install -g openteam
 ```
 
-## Configuration
+## 配置
 
-### 1. Configure OpenCode Plugin
+### 1. 配置 OpenCode 插件
 
-Add to `~/.opencode/opencode.json`:
+添加到 `~/.opencode/opencode.json`：
 
 ```json
 {
@@ -27,9 +27,9 @@ Add to `~/.opencode/opencode.json`:
 }
 ```
 
-### 2. Create Team Configuration
+### 2. 创建团队配置
 
-Create `~/.opencode/agents/<team-name>/team.json`:
+创建 `~/.opencode/agents/<team-name>/team.json`：
 
 ```json
 {
@@ -41,18 +41,18 @@ Create `~/.opencode/agents/<team-name>/team.json`:
 }
 ```
 
-### 3. Create Agent Prompts
+### 3. 创建 Agent 提示词
 
-Create agent prompt files in `~/.opencode/agents/<team-name>/`:
+在 `~/.opencode/agents/<team-name>/` 目录下创建 agent 提示词文件：
 
-- `pm.md` - Product Manager
-- `architect.md` - Architect
-- `developer.md` - Developer
-- `qa.md` - QA
+- `pm.md` - 产品经理
+- `architect.md` - 架构师
+- `developer.md` - 开发者
+- `qa.md` - 测试工程师
 
-### 4. Configure Agent Memory
+### 4. 配置 Agent 记忆
 
-Create `~/.opencode/agents/<team>/<agent>/agent.json`:
+创建 `~/.opencode/agents/<team>/<agent>/agent.json`：
 
 ```json
 {
@@ -66,107 +66,107 @@ Create `~/.opencode/agents/<team>/<agent>/agent.json`:
 }
 ```
 
-## CLI Usage
+## 命令行用法
 
 ```bash
-# Start team serve
+# 启动团队服务
 openteam start myteam
 
-# Start in background
+# 后台启动
 openteam start myteam -d
 
-# Attach to leader session
+# 连接到 leader 会话
 openteam attach myteam
 
-# Attach to specific agent
+# 连接到指定 agent
 openteam attach myteam architect
 
-# Attach to specific instance by cwd
+# 通过工作目录连接到指定实例
 openteam attach myteam developer --cwd /path/to/project
 
-# Monitor all agents in split screen (2x2 grid)
-openteam monitor myteam           # Auto-detect zellij/tmux
-openteam monitor myteam --zellij  # Force zellij
-openteam monitor myteam --tmux    # Force tmux
+# 分屏监控所有 agent（2x2 网格）
+openteam monitor myteam           # 自动检测 zellij/tmux
+openteam monitor myteam --zellij  # 强制使用 zellij
+openteam monitor myteam --tmux    # 强制使用 tmux
 
-# List all teams
+# 列出所有团队
 openteam list
 
-# Show team status
+# 显示团队状态
 openteam status myteam
 
-# Stop team
+# 停止团队
 openteam stop myteam
 ```
 
-## Memory System
+## 记忆系统
 
-### Memory Types
+### 记忆类型
 
-| Type | Description | Always in Context |
-|------|-------------|-------------------|
-| `resident` | Core memory, always visible | Yes |
-| `index` | Index visible, details on demand | Index only |
-| `sessions` | Session history index | Index only |
+| 类型 | 描述 | 始终在上下文中 |
+|------|------|----------------|
+| `resident` | 核心记忆，始终可见 | 是 |
+| `index` | 索引可见，按需加载详情 | 仅索引 |
+| `sessions` | 会话历史索引 | 仅索引 |
 
-### Memory Tools
+### 记忆工具
 
-| Tool | Description |
-|------|-------------|
-| `remember` | Append to resident memory |
-| `correct` | Replace part of memory content |
-| `rethink` | Rewrite entire memory block |
-| `note` | Save a note (auto-updates index) |
-| `lookup` | Read a note's content |
-| `erase` | Delete a note |
-| `search` | Search notes |
-| `review` | Search session history |
-| `reread` | Read full session content |
+| 工具 | 描述 |
+|------|------|
+| `remember` | 追加到常驻记忆 |
+| `correct` | 替换记忆中的部分内容 |
+| `rethink` | 重写整个记忆块 |
+| `note` | 保存笔记（自动更新索引） |
+| `lookup` | 读取笔记内容 |
+| `erase` | 删除笔记 |
+| `search` | 搜索笔记 |
+| `review` | 搜索会话历史 |
+| `reread` | 读取完整会话内容 |
 
-### Team Tools
+### 团队工具
 
-| Tool | Description |
-|------|-------------|
-| `tell` | Send async notification. Auto wakes up offline agents. Leader can broadcast to all |
-| `command` | Leader only: status, assign, free, redirect |
+| 工具 | 描述 |
+|------|------|
+| `tell` | 发送异步通知。自动唤醒离线 agent。Leader 可广播给所有成员 |
+| `command` | 仅限 Leader：status、assign、free、redirect |
 
-### Message Format
+### 消息格式
 
-All messages have `[from xxx]` prefix for source identification:
+所有消息都带有 `[from xxx]` 前缀用于标识来源：
 
-- `[from pm]` - from PM agent (via tell)
-- `[from boss]` - from user direct input (auto-tagged by hook)
+- `[from pm]` - 来自 PM agent（通过 tell）
+- `[from boss]` - 来自用户直接输入（由 hook 自动标记）
 
-#### command actions
+#### command 操作
 
-| Action | Description |
-|--------|-------------|
-| `status` | View team status |
-| `assign` | Assign task (sync, wait for response). Use `cwd` param to create new instance |
-| `free` | Let agent rest (disconnect attach) |
-| `redirect` | Switch agent's working directory |
+| 操作 | 描述 |
+|------|------|
+| `status` | 查看团队状态 |
+| `assign` | 分配任务（同步，等待响应）。使用 `cwd` 参数可创建新实例 |
+| `free` | 让 agent 休息（断开连接） |
+| `redirect` | 切换 agent 的工作目录 |
 
-## Data Structure
+## 数据结构
 
 ```
 ~/.opencode/agents/<team>/
-├── team.json                 # Team configuration
-├── pm.md                     # Agent prompts
+├── team.json                 # 团队配置
+├── pm.md                     # Agent 提示词
 ├── architect.md
-├── .runtime.json             # Serve runtime state
-├── .active-sessions.json     # Active session mapping
+├── .runtime.json             # 服务运行时状态
+├── .active-sessions.json     # 活跃会话映射
 │
-└── <agent>/                  # Agent data
-    ├── agent.json            # Memory configuration
-    ├── sessions.json         # Session history
-    └── memories/             # Memory storage
-        ├── persona.mem       # Resident memory
+└── <agent>/                  # Agent 数据
+    ├── agent.json            # 记忆配置
+    ├── sessions.json         # 会话历史
+    └── memories/             # 记忆存储
+        ├── persona.mem       # 常驻记忆
         ├── human.mem
-        ├── projects.mem      # Index
-        └── projects/         # Note details
+        ├── projects.mem      # 索引
+        └── projects/         # 笔记详情
             └── jarvy.mem
 ```
 
-## License
+## 许可证
 
 MIT
