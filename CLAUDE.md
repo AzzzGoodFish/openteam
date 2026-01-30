@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OpenTeam 是一个面向 Agent 的团队协作框架，作为 OpenCode 插件运行。它实现了：
 - 多 Agent 协作（Leader 管理 + 成员间异步通信）
-- 三层记忆系统（resident/index/sessions）
 - 多实例支持（同一 agent 可在不同目录运行多个实例）
+
+**注意**：记忆系统已拆分到独立插件 `openmemory`（位于 `../openmemory`）。
 
 ## Commands
 
@@ -33,15 +34,10 @@ src/
 ├── index.js             # 插件入口 - 导出 hooks + tools
 ├── constants.js         # 配置常量
 ├── plugin/
-│   ├── hooks.js         # 三个核心 hook：
+│   ├── hooks.js         # 两个 hook：
 │   │                    #   - messagesTransform: 给无来源消息添加 [from boss]
-│   │                    #   - systemTransform: 注入记忆和团队上下文到 system prompt
-│   │                    #   - event hook: session.idle 触发记忆生命周期（标记 → 巩固 → 蒸馏）
-│   └── tools.js         # 5 个工具实现（recall/review/reread + msg/command）
-├── memory/
-│   ├── memory.js        # 三层记忆读写 + 记忆库存查询
-│   ├── extractor.js     # 记忆生命周期（积累/巩固/蒸馏）
-│   └── sessions.js      # 会话历史管理
+│   │                    #   - systemTransform: 注入团队上下文 + 协作规则
+│   └── tools.js         # 2 个工具（msg/command）
 ├── team/
 │   ├── config.js        # 团队/agent 配置加载 + validateTeamConfig 校验
 │   └── serve.js         # 运行时管理、多实例跟踪
@@ -52,23 +48,17 @@ src/
 
 ### Key Patterns
 
-1. **Agent 为中心** - 记忆和身份以 agent 为核心，不依赖工作目录
-2. **消息标记** - 所有消息带 `[from xxx]` 前缀标识来源
-3. **HTTP 轮询** - 通过 OpenCode Serve API 轮询会话状态（非 WebSocket）
-4. **终端复用** - monitor 使用 tmux/zellij 实现多 agent 分屏
+1. **消息标记** - 所有消息带 `[from xxx]` 前缀标识来源
+2. **HTTP 轮询** - 通过 OpenCode Serve API 轮询会话状态（非 WebSocket）
+3. **终端复用** - monitor 使用 tmux/zellij 实现多 agent 分屏
 
 ### Data Flow
 
 ```
 用户输入 → messagesTransform hook (添加 [from boss])
        → agent 处理
-       → 使用 tools (记忆/通信)
-       → systemTransform hook 在每轮注入最新记忆
-
-记忆生命周期：
-session.idle → 标记待巩固 (mark pending)
-           → 达到阈值时触发巩固 (consolidate)
-           → 巩固完成后检查是否需要蒸馏 (distill)
+       → 使用 tools (msg/command)
+       → systemTransform hook 注入团队上下文
 ```
 
 ### Runtime Files (团队目录下)

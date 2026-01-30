@@ -1,12 +1,13 @@
 /**
  * OpenTeam Plugin for OpenCode
  *
- * Agent-centric team collaboration with memory management.
+ * 团队协作插件。记忆功能已迁移到 openmemory 插件。
  */
 
 import { tool } from '@opencode-ai/plugin';
 import { createHooks } from './plugin/hooks.js';
 import { createToolDefs } from './plugin/tools.js';
+
 const OpenTeamPlugin = async (ctx) => {
   // Only load when started via openteam (OPENTEAM_TEAM env var is set)
   const teamName = process.env.OPENTEAM_TEAM;
@@ -28,7 +29,6 @@ const OpenTeamPlugin = async (ctx) => {
   }
 
   return {
-    event: hooks.event,
     'experimental.chat.system.transform': hooks.systemTransform,
     'experimental.chat.messages.transform': hooks.messagesTransform,
     tool: tools,

@@ -1,13 +1,10 @@
 /**
- * Plugin tools implementation
+ * Plugin tools implementation — 团队通信
  *
- * Memory tools (read-only):
- * - recall: Cross-index search returning full note content
- * - review, reread: Session history operations
- *
- * Team tools:
- * - msg: Async message (like WeChat)
- * - command: Leader management commands
+ * 记忆工具（recall/review/reread）已迁移到 openmemory 插件。
+ * openteam 只保留:
+ * - msg: 异步消息（像微信）
+ * - command: Leader 管理指令
  */
 
 import fs from 'fs';
@@ -22,10 +19,7 @@ import {
   removeInstance,
   getMonitorInfo,
 } from '../team/serve.js';
-import { recallNotes } from '../memory/memory.js';
-import { searchSessions, removeSession } from '../memory/sessions.js';
 import {
-  fetchSession,
   fetchMessages,
   createSession,
   sessionExists,
@@ -61,54 +55,39 @@ async function getCurrentAgent(sessionID) {
 
 /**
  * Add a new pane to monitor for an agent instance
- * Creates pane for:
- * - Agents not in team.json (always)
- * - Additional instances of agents in team.json (2nd, 3rd, etc.)
  */
 function addPaneToMonitor(teamName, agentName, cwd) {
   const monitorInfo = getMonitorInfo(teamName);
   if (!monitorInfo) return false;
 
-  // Check if this is an additional instance that needs a new pane
   const teamConfig = loadTeamConfig(teamName);
   const isInTeam = teamConfig?.agents?.includes(agentName);
   const instances = getAgentInstances(teamName, agentName);
 
-  // If agent is in team.json and this is the first instance,
-  // monitor already has a pane for it (from initial setup)
-  if (isInTeam && instances.length <= 1) {
-    return false;
-  }
+  if (isInTeam && instances.length <= 1) return false;
 
   const { mux, sessionName } = monitorInfo;
-  // Include --cwd to attach to specific instance
   const cmd = `openteam attach ${teamName} ${agentName} --watch --cwd '${cwd}'`;
 
   try {
     if (mux === 'tmux') {
-      // Get total pane count across all windows
       const paneCount = parseInt(
         execSync(`tmux list-panes -t "${sessionName}" -a | wc -l`, { encoding: 'utf8' }).trim()
       );
 
-      // If current window has 4 panes, create new window
       if (paneCount % 4 === 0) {
         execSync(`tmux new-window -t "${sessionName}" "${cmd}"`, { stdio: 'ignore' });
       } else {
-        // Add pane to current window with tiled layout
         execSync(`tmux split-window -t "${sessionName}" "${cmd}"`, { stdio: 'ignore' });
         execSync(`tmux select-layout -t "${sessionName}" tiled`, { stdio: 'ignore' });
       }
     } else if (mux === 'zellij') {
       const env = { ...process.env, ZELLIJ_SESSION_NAME: sessionName };
 
-      // Get current pane count via dump-layout
       const layout = execSync('zellij action dump-layout', { encoding: 'utf8', env });
       const paneCount = (layout.match(/pane command=/g) || []).length;
 
-      // Every 4 panes, create new tab; otherwise add pane to current tab
       if (paneCount > 0 && paneCount % 4 === 0) {
-        // Create new tab with command using layout file
         const tabLayout = `layout {
     tab name="${agentName}" cwd="${cwd}" {
         pane size=1 borderless=true {
@@ -128,9 +107,7 @@ function addPaneToMonitor(teamName, agentName, cwd) {
           stdio: 'ignore',
           env,
         });
-        // Keep layout file for debugging
       } else {
-        // Add pane to current tab with correct cwd
         execSync(`zellij run --name "${agentName}" --cwd "${cwd}" -- ${cmd}`, { stdio: 'ignore', env });
       }
     }
@@ -145,118 +122,6 @@ function addPaneToMonitor(teamName, agentName, cwd) {
  */
 export function createToolDefs() {
   return {
-    // ========== Memory Tools (read-only) ==========
-
-    recall: {
-      description: '查阅笔记。搜索所有笔记本，返回匹配笔记的完整内容。支持关键词搜索、精确 key 名、或 index/key 格式。',
-      args: {
-        query: tool.schema.string().describe('搜索内容：关键词、笔记 key、或 index/key 格式'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const result = recallNotes(agent.team, agent.name, args.query);
-        if (!result.success) return `Error: ${result.error}`;
-
-        if (result.matches.length === 0) return '未找到匹配的笔记';
-
-        return result.matches
-          .map((m) => `## ${m.index}/${m.key}\n\n${m.content}`)
-          .join('\n\n---\n\n');
-      },
-    },
-
-    // ========== Session Tools ==========
-
-    review: {
-      description: '回顾过去的对话。搜索历史会话记录。',
-      args: {
-        query: tool.schema.string().describe('搜索关键词，如主题、日期、人名'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const matches = searchSessions(agent.team, agent.name, args.query, 10);
-
-        if (matches.length === 0) {
-          return '未找到匹配的会话';
-        }
-
-        return matches
-          .map((s) => {
-            const date = new Date(s.time).toLocaleDateString('zh-CN');
-            return `${s.id}: ${s.title} (${date})`;
-          })
-          .join('\n');
-      },
-    },
-
-    reread: {
-      description: '重读一次历史对话的完整内容。',
-      args: {
-        session_id: tool.schema.string().describe('会话ID，如 ses_abc123'),
-        limit: tool.schema.number().optional().describe('最多读取多少条消息，默认50'),
-      },
-      execute: async (args, ctx) => {
-        const agent = await getCurrentAgent(ctx.sessionID);
-        if (!agent) return 'Error: 无法确定当前 agent';
-
-        const serveUrl = findActiveServeUrl();
-
-        try {
-          const session = await fetchSession(serveUrl, args.session_id);
-          if (!session) {
-            removeSession(agent.team, agent.name, args.session_id);
-            return `Error: 会话不存在或无法访问 - ${args.session_id}（已从记录中移除）`;
-          }
-
-          const messages = await fetchMessages(serveUrl, args.session_id);
-          if (!messages || messages.length === 0) {
-            return `会话 "${session.title}" 没有消息`;
-          }
-
-          const limit = args.limit || 50;
-          const limitedMessages = messages.slice(-limit);
-
-          let output = `# 会话: ${session.title}\n`;
-          output += `ID: ${args.session_id}\n`;
-          output += `创建时间: ${new Date(session.time?.created).toLocaleString('zh-CN')}\n`;
-          output += `消息数: ${messages.length}${messages.length > limit ? ` (显示最近${limit}条)` : ''}\n`;
-          output += `---\n\n`;
-
-          for (const msg of limitedMessages) {
-            const role = msg.role === 'user' ? '用户' : '助手';
-            const time = new Date(msg.time?.created).toLocaleTimeString('zh-CN');
-
-            output += `### ${role} (${time})\n`;
-
-            if (msg.parts && msg.parts.length > 0) {
-              for (const part of msg.parts) {
-                if (part.type === 'text') {
-                  output += `${part.text}\n`;
-                } else if (part.type === 'tool_use') {
-                  output += `[调用工具: ${part.name}]\n`;
-                } else if (part.type === 'tool_result') {
-                  output += `[工具结果]\n`;
-                }
-              }
-            } else {
-              output += `(无内容)\n`;
-            }
-            output += `\n`;
-          }
-
-          return output;
-        } catch (e) {
-          return `Error: 读取会话失败 - ${e.message}`;
-        }
-      },
-    },
-
-    // ========== Team Communication ==========
-
     msg: {
       description:
         '发消息（异步，像发微信）。直接输出文字对方看不到，必须用 msg。收到 [from xxx] 消息后需用 msg 回复对方才能看到。Leader 可广播。',
@@ -269,29 +134,19 @@ export function createToolDefs() {
       },
       execute: async (args, ctx) => {
         const currentAgent = await getCurrentAgent(ctx.sessionID);
-        if (!currentAgent) {
-          return 'Error: 无法确定当前 agent';
-        }
+        if (!currentAgent) return 'Error: 无法确定当前 agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) {
-          return 'Error: 团队配置不存在';
-        }
+        if (!teamConfig) return 'Error: 团队配置不存在';
 
         const serveUrl = getServeUrl(currentAgent.team);
-        if (!serveUrl) {
-          return 'Error: 团队 serve 未启动';
-        }
+        if (!serveUrl) return 'Error: 团队 serve 未启动';
 
         const isLeader = currentAgent.name === teamConfig.leader;
         const isBroadcast = !args.who || args.who === 'all';
 
-        // Only leader can broadcast
-        if (isBroadcast && !isLeader) {
-          return 'Error: 只有 leader 才能广播';
-        }
+        if (isBroadcast && !isLeader) return 'Error: 只有 leader 才能广播';
 
-        // Determine targets
         let targets = [];
         if (isBroadcast) {
           targets = teamConfig.agents.filter((a) => a !== currentAgent.name);
@@ -302,31 +157,23 @@ export function createToolDefs() {
           targets = [args.who];
         }
 
-        // Get current agent's cwd for waking up offline agents
         const currentInstances = getAgentInstances(currentAgent.team, currentAgent.name);
         const defaultCwd = currentInstances[0]?.cwd || process.cwd();
 
-        // Send to all targets (async, don't wait for response)
         const msgPreview = args.message.slice(0, 30) + (args.message.length > 30 ? '...' : '');
         log.info(`[${currentAgent.name}] event=msg_send to=${targets.join(',')} preview="${msgPreview}"`);
-        
+
         const results = [];
         for (const target of targets) {
           let instances = getAgentInstances(currentAgent.team, target);
 
-          // If agent is offline, wake it up by creating a new session
           if (instances.length === 0) {
             const metadata = {
               agent: `${currentAgent.team}/${target}`,
               team: currentAgent.team,
               role: target,
             };
-            const session = await createSession(
-              serveUrl,
-              defaultCwd,
-              `${target} 工作区`,
-              metadata
-            );
+            const session = await createSession(serveUrl, defaultCwd, `${target} 工作区`, metadata);
             if (session) {
               addInstance(currentAgent.team, target, { sessionId: session.id, cwd: defaultCwd });
               addPaneToMonitor(currentAgent.team, target, defaultCwd);
@@ -339,13 +186,11 @@ export function createToolDefs() {
             }
           }
 
-          // Send to first active instance (wait for send, not for response)
           let sent = false;
           for (const inst of instances) {
             const exists = await sessionExists(serveUrl, inst.sessionId);
             if (exists) {
               try {
-                // Wait for request to be sent, but not for AI response
                 await fetch(
                   `${serveUrl}/session/${inst.sessionId}/prompt_async?directory=${encodeURIComponent(inst.cwd)}`,
                   {
@@ -362,12 +207,12 @@ export function createToolDefs() {
                 }
                 sent = true;
               } catch {
-                // Ignore send errors
+                // ignore
               }
               break;
             }
           }
-          if (!sent && !results.some(r => r.startsWith(`${target}:`))) {
+          if (!sent && !results.some((r) => r.startsWith(`${target}:`))) {
             results.push(`${target}: 发送失败`);
           }
         }
@@ -387,27 +232,20 @@ export function createToolDefs() {
       },
       execute: async (args, ctx) => {
         const currentAgent = await getCurrentAgent(ctx.sessionID);
-        if (!currentAgent) {
-          return 'Error: 无法确定当前 agent';
-        }
+        if (!currentAgent) return 'Error: 无法确定当前 agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) {
-          return 'Error: 团队配置不存在';
-        }
+        if (!teamConfig) return 'Error: 团队配置不存在';
 
         if (currentAgent.name !== teamConfig.leader) {
           return `Error: 只有 ${teamConfig.leader} 才能使用 command`;
         }
 
         const serveUrl = getServeUrl(currentAgent.team);
-        if (!serveUrl) {
-          return 'Error: 团队 serve 未启动';
-        }
+        if (!serveUrl) return 'Error: 团队 serve 未启动';
 
         const action = args.action;
 
-        // Parse who@alias format
         let who = args.who;
         let alias = args.alias;
         if (who && who.includes('@')) {
@@ -416,7 +254,7 @@ export function createToolDefs() {
           alias = parts[1];
         }
 
-        // ========== STATUS ==========
+        // STATUS
         if (action === 'status') {
           const agents = who ? [who] : teamConfig.agents;
           const lines = [];
@@ -438,27 +276,19 @@ export function createToolDefs() {
           return lines.join('\n') || '没有团队成员';
         }
 
-        // Need who for other actions
-        if (!who) {
-          return 'Error: 请指定 who 参数';
-        }
+        if (!who) return 'Error: 请指定 who 参数';
 
         if (!isAgentInTeam(currentAgent.team, who)) {
           return `Error: 团队里没有 "${who}"，可选: ${teamConfig.agents.join(', ')}`;
         }
 
-        // ========== FREE ==========
+        // FREE
         if (action === 'free') {
           const instances = getAgentInstances(currentAgent.team, who);
-
-          if (instances.length === 0) {
-            return `${who} 已经在休息了`;
-          }
+          if (instances.length === 0) return `${who} 已经在休息了`;
 
           if (instances.length > 1 && !args.cwd && !alias) {
-            const list = instances
-              .map((i) => `  - ${i.cwd}${i.alias ? ` @${i.alias}` : ''}`)
-              .join('\n');
+            const list = instances.map((i) => `  - ${i.cwd}${i.alias ? ` @${i.alias}` : ''}`).join('\n');
             return `${who} 有多个实例，请指定 cwd 或 alias:\n${list}`;
           }
 
@@ -471,35 +301,25 @@ export function createToolDefs() {
           return `${who} 去休息了`;
         }
 
-        // ========== REDIRECT ==========
+        // REDIRECT
         if (action === 'redirect') {
-          if (!args.cwd) {
-            return 'Error: redirect 需要 cwd 参数';
-          }
+          if (!args.cwd) return 'Error: redirect 需要 cwd 参数';
+          if (!fs.existsSync(args.cwd)) return `Error: 目录不存在 - ${args.cwd}`;
 
-          if (!fs.existsSync(args.cwd)) {
-            return `Error: 目录不存在 - ${args.cwd}`;
-          }
-
-          // Remove old instance(s)
           const instances = getAgentInstances(currentAgent.team, who);
           for (const inst of instances) {
             removeInstance(currentAgent.team, who, { cwd: inst.cwd });
           }
 
-          // Create new session in new directory with metadata
           const metadata = {
             agent: `${currentAgent.team}/${who}`,
             team: currentAgent.team,
             role: who,
           };
           const session = await createSession(serveUrl, args.cwd, `${who} 工作区`, metadata);
-          if (!session) {
-            return 'Error: 创建会话失败';
-          }
+          if (!session) return 'Error: 创建会话失败';
 
           addInstance(currentAgent.team, who, { sessionId: session.id, cwd: args.cwd, alias });
-
           return `${who} 已切换到 ${args.cwd}`;
         }
 
