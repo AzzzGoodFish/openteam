@@ -2,7 +2,10 @@
  * Logger utility for openteam
  *
  * Enable logging by setting environment variable:
- *   OPENTEAM_LOG=1  - Enable logging (writes to file)
+ *   OPENTEAM_LOG=file     - Output to file only (~/.openteam/openteam.log)
+ *   OPENTEAM_LOG=console  - Output to OpenCode console only (visible in TUI with ctrl+d)
+ *   OPENTEAM_LOG=both     - Output to both file and console
+ *   OPENTEAM_LOG=1        - Alias for 'file' (backward compatible)
  *
  * Log level:
  *   OPENTEAM_LOG_LEVEL=debug|info|warn|error (default: info)
@@ -25,11 +28,17 @@ const LOG_LEVELS = {
 const LOG_MODE = process.env.OPENTEAM_LOG || '';
 const LOG_LEVEL = process.env.OPENTEAM_LOG_LEVEL || 'info';
 
+// Parse log mode
 const isEnabled = LOG_MODE !== '';
+const toFile = LOG_MODE === '1' || LOG_MODE === 'file' || LOG_MODE === 'both';
+const toConsole = LOG_MODE === 'console' || LOG_MODE === 'both';
 
 const openteamDir = path.join(os.homedir(), '.openteam');
 const logFilePath = path.join(openteamDir, 'openteam.log');
 const minLevel = LOG_LEVELS[LOG_LEVEL] ?? LOG_LEVELS.info;
+
+// OpenCode client for console logging (set via setClient)
+let opencodeClient = null;
 
 /**
  * Format timestamp
@@ -74,14 +83,40 @@ function writeToFile(formatted) {
 }
 
 /**
+ * Write to OpenCode console via client API
+ */
+async function writeToConsole(level, module, message, data) {
+  if (!opencodeClient) return;
+
+  try {
+    await opencodeClient.app.log({
+      body: {
+        service: `openteam:${module}`,
+        level,
+        message,
+        extra: data || undefined,
+      },
+    });
+  } catch {
+    // Silently ignore console errors
+  }
+}
+
+/**
  * Core log function
  */
 function log(level, module, message, data = null) {
   if (!isEnabled) return;
   if (LOG_LEVELS[level] < minLevel) return;
 
-  const formatted = formatMessage(level, module, message, data);
-  writeToFile(formatted);
+  if (toFile) {
+    const formatted = formatMessage(level, module, message, data);
+    writeToFile(formatted);
+  }
+
+  if (toConsole) {
+    writeToConsole(level, module, message, data);
+  }
 }
 
 /**
@@ -122,4 +157,12 @@ export function clearLog() {
  */
 export function isLoggingEnabled() {
   return isEnabled;
+}
+
+/**
+ * Set OpenCode client for console logging
+ * Call this from plugin initialization with the client from PluginInput
+ */
+export function setClient(client) {
+  opencodeClient = client;
 }
