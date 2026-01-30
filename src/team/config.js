@@ -91,6 +91,15 @@ export function isAgentInTeam(teamName, agentName) {
 }
 
 /**
+ * Get extractor model config from team config
+ * Returns { providerID, modelID } or null
+ */
+export function getExtractorModel(teamName) {
+  const config = loadTeamConfig(teamName);
+  return config?.extractor?.model || null;
+}
+
+/**
  * List all teams
  */
 export function listTeams() {

@@ -337,6 +337,90 @@ export function searchNotes(teamName, agentName, indexName, query) {
   return { success: true, matches };
 }
 
+// ========== Memory Hint (for auto-injection) ==========
+
+/**
+ * Get all index entries for keyword matching
+ */
+export function getAllIndexEntries(teamName, agentName) {
+  const configs = loadMemoryConfig(teamName, agentName);
+  const indexEntries = [];
+
+  for (const config of configs) {
+    if (config.type !== MEMORY_TYPES.INDEX) continue;
+
+    const content = readMemory(teamName, agentName, config.name);
+    if (!content) continue;
+
+    const { entries } = parseIndex(content);
+
+    for (const [key, summary] of Object.entries(entries)) {
+      indexEntries.push({
+        indexName: config.name,
+        key,
+        summary,
+        path: getNotePath(teamName, agentName, config.name, key),
+      });
+    }
+  }
+
+  return indexEntries;
+}
+
+/**
+ * Find relevant index entries based on user message
+ * Uses keyword matching for speed
+ */
+export function findRelevantEntries(teamName, agentName, userMessage) {
+  if (!userMessage) return [];
+
+  const entries = getAllIndexEntries(teamName, agentName);
+  if (entries.length === 0) return [];
+
+  const messageLower = userMessage.toLowerCase();
+  const matches = [];
+
+  for (const entry of entries) {
+    const keyLower = entry.key.toLowerCase();
+    const summaryLower = entry.summary.toLowerCase();
+
+    // Check if key or summary appears in user message
+    if (messageLower.includes(keyLower) || messageLower.includes(summaryLower)) {
+      matches.push(entry);
+      continue;
+    }
+
+    // Check if any word from key appears in message (for compound keys like "feature-login")
+    const keyWords = keyLower.split(/[-_\s]+/).filter((w) => w.length > 2);
+    for (const word of keyWords) {
+      if (messageLower.includes(word)) {
+        matches.push(entry);
+        break;
+      }
+    }
+  }
+
+  return matches;
+}
+
+/**
+ * Format memory hints for system prompt
+ */
+export function formatMemoryHints(matches) {
+  if (matches.length === 0) return '';
+
+  let hint = '<memory-hints>\n';
+  hint += '检测到可能相关的笔记，建议使用 lookup 查看详情：\n\n';
+
+  for (const match of matches) {
+    hint += `- **${match.indexName}/${match.key}**: ${match.summary}\n`;
+    hint += `  使用: lookup(index="${match.indexName}", key="${match.key}")\n\n`;
+  }
+
+  hint += '</memory-hints>';
+  return hint;
+}
+
 // ========== Format for System Prompt ==========
 
 /**

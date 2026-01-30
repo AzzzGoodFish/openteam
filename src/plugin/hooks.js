@@ -7,8 +7,17 @@ import path from 'path';
 import { PATHS } from '../constants.js';
 import { loadTeamConfig, loadAgentConfig } from '../team/config.js';
 import { findActiveServeUrl } from '../team/serve.js';
-import { loadAllMemories, formatMemoriesPrompt } from '../memory/memory.js';
+import {
+  loadAllMemories,
+  formatMemoriesPrompt,
+  findRelevantEntries,
+  formatMemoryHints,
+} from '../memory/memory.js';
 import { saveSession, validateSessions } from '../memory/sessions.js';
+import { extractMemories } from '../memory/extractor.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('hooks');
 import { fetchSession } from '../utils/api.js';
 
 /**
@@ -102,10 +111,34 @@ function getCollaborationRules() {
 ### Boss 消息回复方式
 - 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中）
 - **禁止**用 \`msg(who="boss", ...)\`，boss 不是 agent
-- Boss 亲自介入通常意味着工作有偏差，需反思是否更新记忆
 
-**必须反思**：是否需要使用 \`correct\` 或 \`rethink\` 更新记忆？
+### 记忆系统
+- 系统会**自动提取**对话中值得记住的信息，你无需刻意记录
+- 当看到 \`<memory-hints>\` 提示时，说明有相关笔记可以查阅
+- 记忆工具（remember/note 等）用于**主动精细控制**，非必需
 </collaboration-rules>`;
+}
+
+/**
+ * Extract latest user message text from messages array
+ */
+function getLatestUserMessage(messages) {
+  if (!messages || messages.length === 0) return null;
+
+  // Find the last user message
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.info?.role !== 'user') continue;
+
+    // Find first text part
+    const textPart = msg.parts?.find((p) => p.type === 'text');
+    if (textPart?.text) {
+      // Remove [from xxx] prefix if present
+      return textPart.text.replace(/^\[from\s+\w+\]\s*/, '').trim();
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -114,6 +147,8 @@ function getCollaborationRules() {
 export function createHooks() {
   const processedSessions = new Set();
   const pendingPath = path.join(PATHS.AGENTS_DIR, '.pending-sessions.json');
+  // Track hints already shown in this session to avoid repetition
+  const shownHints = new Map(); // sessionID -> Set of "indexName/key"
 
   return {
     /**
@@ -141,7 +176,7 @@ export function createHooks() {
     },
 
     /**
-     * Event hook - track session idle
+     * Event hook - track session idle and trigger memory extraction
      */
     event: async ({ event }) => {
       if (event.type !== 'session.idle') return;
@@ -152,6 +187,7 @@ export function createHooks() {
       if (processedSessions.has(sessionID)) return;
       processedSessions.add(sessionID);
 
+      // Save to pending for session history tracking
       let pending = [];
       if (fs.existsSync(pendingPath)) {
         try {
@@ -167,12 +203,55 @@ export function createHooks() {
         fs.mkdirSync(pendingDir, { recursive: true });
       }
       fs.writeFileSync(pendingPath, JSON.stringify(pending, null, 2));
+
+      // Memory Extractor: Analyze conversation and extract memories
+      // Run asynchronously to not block the event handler
+      (async () => {
+        try {
+          const serveUrl = findActiveServeUrl();
+          if (!serveUrl) return;
+
+          const agent = await getCurrentAgent(sessionID);
+          if (!agent) return;
+
+          // Get session directory
+          const session = await fetchSession(serveUrl, sessionID);
+          if (!session?.share?.directory) return;
+
+          // Skip system sessions (like extractor session itself)
+          if (session.metadata?.system) {
+            log.debug('Skipping system session for extraction', { sessionID });
+            return;
+          }
+
+          log.info('Triggering memory extraction', { sessionID, agent: agent.full });
+
+          const result = await extractMemories(
+            serveUrl,
+            sessionID,
+            agent.team,
+            agent.name,
+            session.share.directory
+          );
+
+          if (result.extracted) {
+            log.info('Memory extraction successful', {
+              agent: agent.full,
+              count: result.memories?.length || 0,
+            });
+          } else {
+            log.debug('No memories extracted', { reason: result.reason });
+          }
+        } catch (e) {
+          log.error('Memory extraction error', { error: e.message });
+        }
+      })();
     },
 
     /**
-     * System transform hook - inject memory
+     * System transform hook - inject memory and memory hints
      */
-    systemTransform: async ({ sessionID }, output) => {
+    systemTransform: async ({ sessionID, messages }, output) => {
       try {
         // Skip special requests (title generator, etc.)
         const existingSystem = output.system?.join?.('') || output.system || '';
@@ -222,6 +301,37 @@ export function createHooks() {
           if (memoriesPrompt) {
             (output.system ||= []).push(memoriesPrompt);
           }
+
+          // Memory Injector: Find and hint relevant index entries
+          const userMessage = getLatestUserMessage(messages);
+          if (userMessage) {
+            const relevantEntries = findRelevantEntries(agent.team, agent.name, userMessage);
+
+            // Filter out already shown hints in this session
+            if (!shownHints.has(sessionID)) {
+              shownHints.set(sessionID, new Set());
+            }
+            const sessionShown = shownHints.get(sessionID);
+
+            const newMatches = relevantEntries.filter((entry) => {
+              const hintKey = `${entry.indexName}/${entry.key}`;
+              if (sessionShown.has(hintKey)) return false;
+              sessionShown.add(hintKey);
+              return true;
+            });
+
+            if (newMatches.length > 0) {
+              log.info('Memory hints injected', {
+                sessionID,
+                agent: agent.full,
+                hints: newMatches.map((m) => `${m.indexName}/${m.key}`),
+              });
+              const hintsPrompt = formatMemoryHints(newMatches);
+              if (hintsPrompt) {
+                (output.system ||= []).push(hintsPrompt);
+              }
+            }
+          }
         }
 
         // Inject team members
@@ -236,7 +346,7 @@ export function createHooks() {
           (output.system ||= []).push(getCollaborationRules());
         }
       } catch (e) {
-        console.error('[openteam] systemTransform error:', e.message);
+        log.error('systemTransform error', { error: e.message });
       }
     },
   };

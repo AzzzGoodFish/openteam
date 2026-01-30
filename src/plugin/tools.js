@@ -39,6 +39,9 @@ import {
   createSession,
   sessionExists,
 } from '../utils/api.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('tools');
 
 /**
  * Parse agent name from session messages
@@ -154,22 +157,24 @@ export function createToolDefs() {
     // ========== Resident Memory Tools ==========
 
     remember: {
-      description: '把一段信息记到脑子里。会追加到指定记忆的末尾。',
+      description: '主动记住一段信息（追加到记忆末尾）。系统会自动提取重要信息，此工具用于你想立即、明确记录的内容。',
       args: {
-        memory: tool.schema.string().describe('记忆名称，如 persona、human、projects'),
+        memory: tool.schema.string().describe('记忆名称，如 human、status'),
         content: tool.schema.string().describe('要记住的内容'),
       },
       execute: async (args, ctx) => {
         const agent = await getCurrentAgent(ctx.sessionID);
         if (!agent) return 'Error: 无法确定当前 agent';
 
+        log.info('remember', { agent: agent.full, memory: args.memory, contentLength: args.content.length });
         const result = appendMemory(agent.team, agent.name, args.memory, args.content);
+        if (!result.success) log.warn('remember failed', { error: result.error });
         return result.success ? '已记住' : `Error: ${result.error}`;
       },
     },
 
     correct: {
-      description: '更正记忆中的某段内容。用于修正错误或更新过时信息。',
+      description: '更正记忆中的某段内容。用于修正错误或更新过时信息。需要精确匹配原文。',
       args: {
         memory: tool.schema.string().describe('记忆名称'),
         old_text: tool.schema.string().describe('要替换的原文（必须精确匹配）'),
@@ -202,24 +207,26 @@ export function createToolDefs() {
     // ========== Note Tools ==========
 
     note: {
-      description: '记一条笔记。详情保存到笔记本，索引自动更新。适合保存较长的、以后需要查阅的内容。',
+      description: '主动保存一条笔记。系统会自动提取重要信息，此工具用于你想立即、明确保存的较长内容。',
       args: {
-        index: tool.schema.string().describe('笔记本名称，如 projects、specs、notes'),
+        index: tool.schema.string().describe('笔记本名称，如 projects、specs'),
         key: tool.schema.string().describe('笔记标识，如 jarvy、feature-login'),
         content: tool.schema.string().describe('笔记的详细内容'),
-        summary: tool.schema.string().optional().describe('简短摘要，会显示在索引中。不填则自动截取开头'),
+        summary: tool.schema.string().optional().describe('简短摘要（不填则自动截取）'),
       },
       execute: async (args, ctx) => {
         const agent = await getCurrentAgent(ctx.sessionID);
         if (!agent) return 'Error: 无法确定当前 agent';
 
+        log.info('note', { agent: agent.full, index: args.index, key: args.key });
         const result = saveNote(agent.team, agent.name, args.index, args.key, args.content, args.summary);
+        if (!result.success) log.warn('note failed', { error: result.error });
         return result.success ? '已记录' : `Error: ${result.error}`;
       },
     },
 
     lookup: {
-      description: '查阅一条笔记的详细内容。',
+      description: '查阅笔记详情。当看到 <memory-hints> 提示有相关笔记时，用此工具查看完整内容。',
       args: {
         index: tool.schema.string().describe('笔记本名称'),
         key: tool.schema.string().describe('笔记标识'),
@@ -407,12 +414,14 @@ export function createToolDefs() {
         const defaultCwd = currentInstances[0]?.cwd || process.cwd();
 
         // Send to all targets (async, don't wait for response)
+        log.info('msg sending', { from: currentAgent.full, targets, isBroadcast });
         const results = [];
         for (const target of targets) {
           let instances = getAgentInstances(currentAgent.team, target);
 
           // If agent is offline, wake it up by creating a new session
           if (instances.length === 0) {
+            log.info('msg waking up agent', { target });
             const metadata = {
               agent: `${currentAgent.team}/${target}`,
               team: currentAgent.team,
@@ -429,8 +438,10 @@ export function createToolDefs() {
               addPaneToMonitor(currentAgent.team, target, defaultCwd);
               instances = [{ sessionId: session.id, cwd: defaultCwd }];
               results.push(`${target}: 已唤醒`);
+              log.info('msg agent woken up', { target, sessionId: session.id });
             } else {
               results.push(`${target}: 唤醒失败`);
+              log.warn('msg wake up failed', { target });
               continue;
             }
           }

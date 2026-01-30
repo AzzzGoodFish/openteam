@@ -37,9 +37,19 @@ npm install -g openteam
   "leader": "pm",
   "host": "127.0.0.1",
   "port": 0,
-  "agents": ["pm", "architect", "developer", "qa"]
+  "agents": ["pm", "architect", "developer", "qa"],
+  "extractor": {
+    "model": {
+      "providerID": "anthropic",
+      "modelID": "claude-3-haiku-20240307"
+    }
+  }
 }
 ```
+
+**extractor 配置（可选）**：
+- `model`: 记忆提取使用的模型，建议配置轻量模型节省成本
+- 不配置时会自动检测可用的小模型（haiku/flash/mini 等）
 
 ### 3. 创建 Agent 提示词
 
@@ -101,6 +111,26 @@ openteam stop myteam
 
 ## 记忆系统
 
+### 自动记忆功能
+
+OpenTeam 支持自动记忆维护，Agent 无需主动调用记忆工具：
+
+**Memory Injector（记忆提示）**
+- 当用户消息中包含与笔记相关的关键词时，自动在系统提示中注入 `<memory-hints>`
+- 提示 Agent 有相关笔记可以用 `lookup` 查阅
+- 触发时机：每次用户发送消息时（systemTransform）
+
+**Memory Extractor（记忆提取）**
+- 会话空闲时自动分析最近一轮对话
+- 使用轻量模型判断是否有值得记住的信息
+- 自动写入 resident 记忆或创建 index 笔记
+- 触发时机：session.idle 事件
+
+**模型选择**（和 opencode 标题生成一致）：
+1. 优先使用 `team.json` 中配置的 `extractor.model`
+2. 未配置时自动检测可用的小模型（haiku > flash > mini > nano）
+3. 找不到小模型时使用默认模型
+
 ### 记忆类型
 
 | 类型 | 描述 | 始终在上下文中 |
@@ -111,13 +141,15 @@ openteam stop myteam
 
 ### 记忆工具
 
+由于系统会自动提取记忆，以下工具主要用于**主动精细控制**：
+
 | 工具 | 描述 |
 |------|------|
-| `remember` | 追加到常驻记忆 |
+| `remember` | 主动追加到常驻记忆 |
 | `correct` | 替换记忆中的部分内容 |
 | `rethink` | 重写整个记忆块 |
-| `note` | 保存笔记（自动更新索引） |
-| `lookup` | 读取笔记内容 |
+| `note` | 主动保存笔记 |
+| `lookup` | 查阅笔记详情（配合 memory-hints 使用） |
 | `erase` | 删除笔记 |
 | `search` | 搜索笔记 |
 | `review` | 搜索会话历史 |
@@ -164,6 +196,25 @@ openteam stop myteam
         ├── projects.mem      # 索引
         └── projects/         # 笔记详情
             └── jarvy.mem
+```
+
+## 调试与日志
+
+通过环境变量启用日志：
+
+```bash
+# 启用日志
+OPENTEAM_LOG=1 openteam start myteam
+
+# 设置日志级别 (debug/info/warn/error，默认 info)
+OPENTEAM_LOG=1 OPENTEAM_LOG_LEVEL=debug openteam start myteam
+```
+
+日志文件位置：`~/.openteam/openteam.log`
+
+查看日志：
+```bash
+tail -f ~/.openteam/openteam.log
 ```
 
 ## 许可证
