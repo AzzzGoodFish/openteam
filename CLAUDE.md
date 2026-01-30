@@ -33,18 +33,21 @@ src/
 ├── index.js             # 插件入口 - 导出 hooks + tools
 ├── constants.js         # 配置常量
 ├── plugin/
-│   ├── hooks.js         # 两个核心 hook：
+│   ├── hooks.js         # 三个核心 hook：
 │   │                    #   - messagesTransform: 给无来源消息添加 [from boss]
 │   │                    #   - systemTransform: 注入记忆和团队上下文到 system prompt
+│   │                    #   - event hook: session.idle 触发记忆生命周期（标记 → 巩固 → 蒸馏）
 │   └── tools.js         # 11 个工具实现（记忆 + 团队通信）
 ├── memory/
-│   ├── memory.js        # 三层记忆读写
+│   ├── memory.js        # 三层记忆读写 + 记忆库存查询
+│   ├── extractor.js     # 记忆生命周期（积累/巩固/蒸馏）
 │   └── sessions.js      # 会话历史管理
 ├── team/
 │   ├── config.js        # 团队/agent 配置加载 + validateTeamConfig 校验
 │   └── serve.js         # 运行时管理、多实例跟踪
 └── utils/
-    └── api.js           # OpenCode Serve HTTP API 封装
+    ├── api.js           # OpenCode Serve HTTP API 封装
+    └── logger.js        # 日志系统
 ```
 
 ### Key Patterns
@@ -61,6 +64,11 @@ src/
        → agent 处理
        → 使用 tools (记忆/通信)
        → systemTransform hook 在每轮注入最新记忆
+
+记忆生命周期：
+session.idle → 标记待巩固 (mark pending)
+           → 达到阈值时触发巩固 (consolidate)
+           → 巩固完成后检查是否需要蒸馏 (distill)
 ```
 
 ### Runtime Files (团队目录下)

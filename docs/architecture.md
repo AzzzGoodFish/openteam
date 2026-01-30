@@ -45,6 +45,9 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │  src/memory/              │    src/team/                │
 │  - memory.js (记忆读写)   │    - serve.js (团队服务)   │
 │  - sessions.js (会话)     │    - config.js (配置加载)  │
+│  - extractor.js (记忆     │                            │
+│    生命周期管理)           │    src/utils/               │
+│                           │    - logger.js (日志系统)   │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -77,6 +80,11 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 - `note/lookup/erase/search` - 笔记管理
 - `review/reread` - 会话历史
 
+**记忆生命周期**（自动维护 index 类型记忆）:
+- **积累（Accumulate）**: session.idle 触发时，标记待巩固素材，不调用 LLM
+- **巩固（Consolidate）**: 素材积累到阈值后，综合会话摘要和记忆库存，对 index 做增删改
+- **蒸馏（Distill）**: 定期对全量记忆做全局整理，合并重复、浓缩细节、删除过时内容
+
 ### 2. 团队系统 (src/team/)
 
 Leader-Member 模式：
@@ -102,6 +110,9 @@ Leader-Member 模式：
 **hooks.js** - 注入 system prompt：
 - 将记忆内容注入到 agent context
 - 自动标记 `[from boss]` 消息
+
+**event hook**:
+- `session.idle` - 触发记忆生命周期（标记待巩固素材，满足条件时触发巩固/蒸馏）
 
 ## 数据架构
 

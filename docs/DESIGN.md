@@ -219,6 +219,20 @@ openteam stop <team>          # 停止团队
 3. 清屏，回到等待状态
 4. 会话历史保留，不删除
 
+## 自动记忆维护
+
+记忆系统包含自动维护机制，通过三阶段生命周期管理 index 类型记忆：
+
+| 阶段 | 名称 | 触发条件 | 行为 |
+|------|------|----------|------|
+| 积累 | Accumulate | 每次 session.idle | 不调用 LLM，仅标记该 session 为待巩固素材（零成本） |
+| 巩固 | Consolidate | 待巩固 session ≥ 5 或距上次巩固 ≥ 24h | 综合最近会话摘要 + 当前记忆库存 + agent 主体定义，对 index 记忆做增删改 |
+| 蒸馏 | Distill | 距上次蒸馏 ≥ 7 天或条目数超阈值 | 对全量记忆库做全局整理：合并重复、浓缩细节、删除过时内容 |
+
+状态信息存储在 `~/.opencode/agents/<team>/.memory-state.json`，包含待巩固列表和上次巩固/蒸馏时间。
+
+详细设计参见 `docs/plans/2026-01-29-memory-lifecycle-design.md`。
+
 ## 安装配置
 
 ### 1. 安装插件

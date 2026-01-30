@@ -42,6 +42,7 @@
 | [Memory System V2](./plans/2025-01-26-memory-system-v2.md) | 记忆系统 V2 规划 |
 | [Multi-Worktree Support](./plans/2025-01-26-multi-worktree-support.md) | 多工作树支持规划 |
 | [Team Communication](./plans/2025-01-26-team-communication.md) | 团队通信规划 |
+| [Memory Lifecycle Design](./plans/2026-01-29-memory-lifecycle-design.md) | 记忆生命周期设计（积累→巩固→蒸馏） |
 
 ### 配置示例
 

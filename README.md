@@ -49,7 +49,34 @@ npm install -g openteam
 
 **extractor 配置（可选）**：
 - `model`: 记忆提取使用的模型，建议配置轻量模型节省成本
+- `consolidation`: 巩固触发阈值
+  - `sessionThreshold`: 待巩固 session 数量阈值（默认 5）
+  - `timeThreshold`: 距上次巩固的时间阈值（默认 `"24h"`）
+- `distillation`: 蒸馏触发阈值
+  - `timeThreshold`: 距上次蒸馏的时间阈值（默认 `"7d"`）
+  - `entryThreshold`: index 记忆条目数阈值（默认 20）
 - 不配置时会自动检测可用的小模型（haiku/flash/mini 等）
+
+完整示例：
+
+```json
+{
+  "extractor": {
+    "model": {
+      "providerID": "anthropic",
+      "modelID": "claude-3-haiku-20240307"
+    },
+    "consolidation": {
+      "sessionThreshold": 5,
+      "timeThreshold": "24h"
+    },
+    "distillation": {
+      "timeThreshold": "7d",
+      "entryThreshold": 20
+    }
+  }
+}
+```
 
 ### 3. 创建 Agent 提示词
 
@@ -107,6 +134,10 @@ openteam status myteam
 
 # 停止团队
 openteam stop myteam
+
+# 手动触发记忆蒸馏
+openteam distill myteam           # 蒸馏所有 agent
+openteam distill myteam pm        # 只蒸馏指定 agent
 ```
 
 ## 记忆系统
@@ -120,11 +151,13 @@ OpenTeam 支持自动记忆维护，Agent 无需主动调用记忆工具：
 - 提示 Agent 有相关笔记可以用 `lookup` 查阅
 - 触发时机：每次用户发送消息时（systemTransform）
 
-**Memory Extractor（记忆提取）**
-- 会话空闲时自动分析最近一轮对话
-- 使用轻量模型判断是否有值得记住的信息
-- 自动写入 resident 记忆或创建 index 笔记
-- 触发时机：session.idle 事件
+**Memory Extractor（记忆生命周期）**
+
+记忆通过三阶段生命周期自动维护，只管理 index 类型记忆：
+
+1. **积累（Accumulate）**：session.idle 时只将该 session 标记为"待巩固素材"，不调用 LLM，零成本
+2. **巩固（Consolidate）**：待巩固 session 达阈值（默认 5 个或 24 小时）后批量处理。输入为会话摘要 + 当前记忆库存 + agent 主体定义，由轻量模型决定对 index 记忆做增删改操作
+3. **蒸馏（Distill）**：定期（默认 7 天或 20 条记忆）对全量记忆库做全局整理——合并重复、浓缩细节、删除过时内容。也可通过 `openteam distill` 手动触发
 
 **模型选择**（和 opencode 标题生成一致）：
 1. 优先使用 `team.json` 中配置的 `extractor.model`
@@ -186,6 +219,7 @@ OpenTeam 支持自动记忆维护，Agent 无需主动调用记忆工具：
 ├── architect.md
 ├── .runtime.json             # 服务运行时状态
 ├── .active-sessions.json     # 活跃会话映射
+├── .memory-state.json        # 记忆生命周期状态（待巩固列表、上次巩固/蒸馏时间）
 │
 └── <agent>/                  # Agent 数据
     ├── agent.json            # 记忆配置

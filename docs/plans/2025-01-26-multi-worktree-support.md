@@ -1,4 +1,4 @@
-# Multi-Worktree Support Design
+# Multi-Worktree Support Design [已实现]
 
 ## 背景
 

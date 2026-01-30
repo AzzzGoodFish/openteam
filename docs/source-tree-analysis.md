@@ -17,14 +17,16 @@ openteam/
 │   │
 │   ├── memory/                   # 记忆系统
 │   │   ├── memory.js             # 记忆读写、resident/index/sessions 处理
-│   │   └── sessions.js           # 会话历史管理
+│   │   ├── sessions.js           # 会话历史管理
+│   │   └── extractor.js          # 记忆生命周期（积累/巩固/蒸馏）
 │   │
 │   ├── team/                     # 团队管理
 │   │   ├── config.js             # 团队配置加载
 │   │   └── serve.js              # 团队服务、多实例管理
 │   │
 │   └── utils/                    # 工具函数
-│       └── api.js                # HTTP API 工具
+│       ├── api.js                # HTTP API 工具
+│       └── logger.js             # 日志系统
 │
 ├── scripts/                      # 脚本
 │   └── migrate.js                # 迁移脚本
@@ -36,7 +38,8 @@ openteam/
 │   └── plans/                    # 设计规划
 │       ├── 2025-01-26-memory-system-v2.md
 │       ├── 2025-01-26-multi-worktree-support.md
-│       └── 2025-01-26-team-communication.md
+│       ├── 2025-01-26-team-communication.md
+│       └── 2026-01-29-memory-lifecycle-design.md
 │
 ├── package.json                  # 项目配置
 ├── package-lock.json             # 依赖锁定
@@ -58,7 +61,7 @@ openteam/
 
 | 文件 | 职责 |
 |------|------|
-| `tools.js` | 定义 11 个工具：remember, correct, rethink, note, lookup, erase, search, review, reread, tell, command |
+| `tools.js` | 定义 11 个工具：remember, correct, rethink, note, lookup, erase, search, review, reread, msg, command |
 | `hooks.js` | system prompt 注入 hook，将记忆内容注入到 agent context |
 
 #### memory/ - 记忆系统
@@ -67,6 +70,7 @@ openteam/
 |------|------|
 | `memory.js` | 记忆读写操作，支持 resident/index/sessions 三种类型 |
 | `sessions.js` | 会话历史管理，搜索和读取历史会话 |
+| `extractor.js` | 记忆生命周期管理（积累/巩固/蒸馏三阶段） |
 
 #### team/ - 团队管理
 
