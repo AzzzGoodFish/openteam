@@ -205,10 +205,19 @@ idle 触发时：
 - 保留关键决策和原因，去掉过程细节
 - 一个主题尽量归到一个条目
 - 信息密度优先于信息完整度
+
+删除约束（重要）：
+- 禁止因为"与当前工作无关"或"不在焦点上"而删除笔记
+- 记忆应跨项目、跨时期保留
+- 只有内容已被合并、明确过时有误导、或内容为空时才允许删除
+- 不确定是否应该删除时，选择 keep
 ```
 
 ### 输出格式（两者共用）
 
+Prompt 要求模型用 yaml 代码块包裹输出，代码块前后可以有分析文字。解析器优先提取代码块内容，fallback 到整段解析和 `actions:` 截取。
+
+````
 ```yaml
 actions:
   - action: create|update|append|delete|merge|rewrite|keep
@@ -220,6 +229,7 @@ actions:
     reason: "为什么做这个操作"
     merge_from: ["key1", "key2"]  # 仅 merge 时需要
 ```
+````
 
 ## 实现计划
 
@@ -254,7 +264,7 @@ actions:
 - 记忆工具（remember / note / lookup 等）
 - Memory hints 注入逻辑
 - systemTransform 记忆注入
-- 模型选择逻辑（复用现有小模型选择机制）
+- 模型选择逻辑（优先使用 extractor.model 配置，fallback 到 agent 主模型）
 
 ### 配置扩展
 

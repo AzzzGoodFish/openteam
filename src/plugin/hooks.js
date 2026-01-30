@@ -126,7 +126,7 @@ function getCollaborationRules() {
 - **禁止**用 \`msg(who="boss", ...)\`，boss 不是 agent
 
 ### 记忆系统
-- 系统会**自动提取**对话中值得记住的信息，你无需刻意记录
+- 系统会在对话结束后**自动巩固**有价值的信息到长期记忆，你无需刻意记录
 - 当看到 \`<memory-hints>\` 提示时，说明有相关笔记可以查阅
 - 记忆工具（remember/note 等）用于**主动精细控制**，非必需
 </collaboration-rules>`;
