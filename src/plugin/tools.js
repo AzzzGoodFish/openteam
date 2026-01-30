@@ -437,27 +437,31 @@ export function createToolDefs() {
             }
           }
 
-          // Send to first active instance
+          // Send to first active instance (wait for send, not for response)
           let sent = false;
           for (const inst of instances) {
             const exists = await sessionExists(serveUrl, inst.sessionId);
             if (exists) {
-              // Fire and forget - don't await response
-              fetch(
-                `${serveUrl}/session/${inst.sessionId}/message?directory=${encodeURIComponent(inst.cwd)}`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    agent: `${currentAgent.team}/${target}`,
-                    parts: [{ type: 'text', text: `[来自 ${currentAgent.name}] ${args.message}` }],
-                  }),
+              try {
+                // Wait for request to be sent, but not for AI response
+                await fetch(
+                  `${serveUrl}/session/${inst.sessionId}/prompt_async?directory=${encodeURIComponent(inst.cwd)}`,
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      agent: `${currentAgent.team}/${target}`,
+                      parts: [{ type: 'text', text: `[来自 ${currentAgent.name}] ${args.message}` }],
+                    }),
+                  }
+                );
+                if (!results.includes(`${target}: 已唤醒`)) {
+                  results.push(`${target}: 已通知`);
                 }
-              ).catch(() => {});
-              if (!results.includes(`${target}: 已唤醒`)) {
-                results.push(`${target}: 已通知`);
+                sent = true;
+              } catch {
+                // Ignore send errors
               }
-              sent = true;
               break;
             }
           }
