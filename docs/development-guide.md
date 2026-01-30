@@ -9,12 +9,6 @@
 
 ## 安装
 
-### 作为全局 CLI 工具
-
-```bash
-npm install -g openteam
-```
-
 ### 本地开发
 
 ```bash
@@ -35,11 +29,12 @@ npm link
 openteam/
 ├── bin/openteam.js      # CLI 入口
 ├── src/index.js         # 库入口
-├── src/plugin/          # 插件核心
-├── src/memory/          # 记忆系统
+├── src/plugin/          # 插件核心（tools + hooks）
 ├── src/team/            # 团队管理
 └── src/utils/           # 工具函数
 ```
+
+> 记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
 
 ## 开发命令
 
@@ -55,7 +50,7 @@ openteam/
 # 启动团队
 openteam start <team>
 
-# 后台启动
+# 后台启动（透传 OPENMEMORY 环境变量）
 openteam start <team> -d
 
 # 附加到会话
@@ -101,21 +96,7 @@ mkdir -p ~/.opencode/agents/<team-name>
 
 ### 3. 创建 agent 提示词
 
-创建 `pm.md`, `architect.md`, `developer.md` 等文件。
-
-### 4. 创建 agent 配置
-
-在 `<team>/<agent>/agent.json` 中配置记忆：
-
-```json
-{
-  "name": "pm",
-  "memories": [
-    { "name": "persona", "type": "resident", "limit": 1000 },
-    { "name": "projects", "type": "index", "limit": 1500 }
-  ]
-}
-```
+创建 `pm.md`, `architect.md`, `developer.md` 等文件，使用 YAML frontmatter 配置模型等信息。
 
 ## 运行时文件
 
@@ -123,8 +104,6 @@ mkdir -p ~/.opencode/agents/<team-name>
 |------|------|
 | `.runtime.json` | 服务运行状态 |
 | `.active-sessions.json` | 活跃会话映射 |
-| `sessions.json` | 会话历史 |
-| `memories/*.mem` | 记忆文件 |
 
 ## 调试
 
@@ -140,15 +119,8 @@ openteam start myteam
 
 ## 测试状态
 
-⚠️ **目前无测试**
-
-package.json 中 test 脚本为空：
-```json
-"test": "echo \"No tests yet\""
-```
+⚠️ **目前无测试** - `npm test` 只是占位符。
 
 ## CI/CD 状态
 
-⚠️ **目前无 CI/CD 配置**
-
-未检测到 GitHub Actions 或其他 CI 配置。
+⚠️ **目前无 CI/CD 配置**。

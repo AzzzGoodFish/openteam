@@ -3,9 +3,10 @@
 ## 执行摘要
 
 OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
-- **记忆系统**: 三层记忆架构 (resident/index/sessions)
 - **团队协作**: Leader-Member 模式，支持 agent 间通信
 - **多实例支持**: 一个 agent 可在多个工作目录运行
+
+> **注意**：记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
 
 ## 技术栈
 
@@ -34,20 +35,17 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     插件层                               │
 ├─────────────────────────────────────────────────────────┤
 │  src/plugin/tools.js      │    src/plugin/hooks.js      │
-│  - 工具定义               │    - system prompt 注入     │
-│  - recall/msg/command     │    - 记忆内容注入          │
+│  - msg/command 工具        │    - 团队上下文注入         │
+│                           │    - [from boss] 标记       │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
 │                     核心服务层                           │
 ├─────────────────────────────────────────────────────────┤
-│  src/memory/              │    src/team/                │
-│  - memory.js (记忆读写)   │    - serve.js (团队服务)   │
-│  - sessions.js (会话)     │    - config.js (配置加载)  │
-│  - extractor.js (记忆     │                            │
-│    生命周期管理)           │    src/utils/               │
-│                           │    - logger.js (日志系统)   │
+│  src/team/                │    src/utils/                │
+│  - serve.js (团队服务)    │    - api.js (HTTP API)      │
+│  - config.js (配置加载)   │    - logger.js (日志)       │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -55,34 +53,14 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     数据层                               │
 ├─────────────────────────────────────────────────────────┤
 │  ~/.opencode/agents/<team>/                             │
-│  - team.json, agent.json                                │
+│  - team.json                                            │
 │  - .runtime.json, .active-sessions.json                 │
-│  - memories/*.mem                                       │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## 核心组件
 
-### 1. 记忆系统 (src/memory/)
-
-三层记忆架构：
-
-| 层级 | 类型 | 特点 | 始终在 Context |
-|------|------|------|----------------|
-| L1 | resident | 常驻记忆，有大小限制 | ✅ |
-| L2 | index | 索引常驻，详情按需加载 | 索引 ✅ |
-| L3 | sessions | 会话历史索引 | 索引 ✅ |
-
-**记忆工具**（只读，写入由自动巩固/蒸馏负责）:
-- `recall` - 跨索引搜索笔记，返回完整内容
-- `review/reread` - 会话历史
-
-**记忆生命周期**（自动维护 index 类型记忆）:
-- **积累（Accumulate）**: session.idle 触发时，标记待巩固素材，不调用 LLM
-- **巩固（Consolidate）**: 素材积累到阈值后，综合会话摘要和记忆库存，对 index 做增删改
-- **蒸馏（Distill）**: 定期对全量记忆做全局整理，合并重复、浓缩细节、删除无效内容（不会因"与当前工作无关"而删除）
-
-### 2. 团队系统 (src/team/)
+### 1. 团队系统 (src/team/)
 
 Leader-Member 模式：
 
@@ -96,19 +74,15 @@ Leader-Member 模式：
 - `free` - 让 agent 休息
 - `redirect` - 切换工作目录
 
-### 3. 插件系统 (src/plugin/)
+### 2. 插件系统 (src/plugin/)
 
 **tools.js** - 工具定义：
-1. recall (笔记查阅，只读)
-2. review, reread (会话历史)
-3. msg, command (团队)
+1. msg (异步消息)
+2. command (团队管理)
 
-**hooks.js** - 注入 system prompt：
-- 将记忆内容注入到 agent context
-- 自动标记 `[from boss]` 消息
-
-**event hook**:
-- `session.idle` - 触发记忆生命周期（标记待巩固素材，满足条件时触发巩固/蒸馏）
+**hooks.js** - 两个 hook：
+- `messagesTransform`: 给无来源消息添加 `[from boss]`
+- `systemTransform`: 注入团队上下文 + 协作规则
 
 ## 数据架构
 
@@ -122,15 +96,7 @@ Leader-Member 模式：
 │     "leader": "pm",
 │     "agents": ["pm", "architect", "developer"]
 │   }
-│
-└── <agent>/agent.json        # Agent 配置
-    {
-      "name": "pm",
-      "memories": [
-        { "name": "persona", "type": "resident", "limit": 1000 },
-        { "name": "projects", "type": "index", "limit": 1500 }
-      ]
-    }
+└── <agent>.md                # agent 提示词（含 frontmatter 配置）
 ```
 
 ### 运行时文件
@@ -138,10 +104,6 @@ Leader-Member 模式：
 ```
 .runtime.json             # 服务状态（团队级）
 .active-sessions.json     # 活跃会话映射（团队级）
-<agent>/
-  .memory-state.json      # 记忆生命周期状态（agent 级）
-  sessions.json           # 会话历史
-  memories/*.mem          # 记忆文件
 ```
 
 ## 消息格式
@@ -155,9 +117,8 @@ Leader-Member 模式：
 
 ## 扩展点
 
-1. **新增记忆类型**: 修改 `src/memory/memory.js`
-2. **新增工具**: 修改 `src/plugin/tools.js`
-3. **新增 command action**: 修改 `src/team/serve.js`
+1. **新增工具**: 修改 `src/plugin/tools.js`
+2. **新增 command action**: 修改 `src/team/serve.js`
 
 ## 相关文档
 

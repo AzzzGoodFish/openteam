@@ -1,5 +1,7 @@
 # OpenTeam 源代码树分析
 
+> **注意**：记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+
 ## 项目结构概览
 
 ```
@@ -12,13 +14,8 @@ openteam/
 │   ├── constants.js              # 常量定义
 │   │
 │   ├── plugin/                   # OpenCode 插件系统
-│   │   ├── tools.js              # 11 个工具定义 (remember, tell, command 等)
-│   │   └── hooks.js              # system prompt 注入 hook
-│   │
-│   ├── memory/                   # 记忆系统
-│   │   ├── memory.js             # 记忆读写、resident/index/sessions 处理
-│   │   ├── sessions.js           # 会话历史管理
-│   │   └── extractor.js          # 记忆生命周期（积累/巩固/蒸馏）
+│   │   ├── tools.js              # 2 个工具：msg, command
+│   │   └── hooks.js              # messagesTransform + systemTransform
 │   │
 │   ├── team/                     # 团队管理
 │   │   ├── config.js             # 团队配置加载
@@ -28,18 +25,10 @@ openteam/
 │       ├── api.js                # HTTP API 工具
 │       └── logger.js             # 日志系统
 │
-├── scripts/                      # 脚本
-│   └── migrate.js                # 迁移脚本
-│
 ├── docs/                         # 文档
 │   ├── DESIGN.md                 # 设计文档（中文）
 │   ├── examples/                 # 配置示例
-│   │   └── agent.json
 │   └── plans/                    # 设计规划
-│       ├── 2025-01-26-memory-system-v2.md
-│       ├── 2025-01-26-multi-worktree-support.md
-│       ├── 2025-01-26-team-communication.md
-│       └── 2026-01-29-memory-lifecycle-design.md
 │
 ├── package.json                  # 项目配置
 ├── package-lock.json             # 依赖锁定
@@ -61,22 +50,14 @@ openteam/
 
 | 文件 | 职责 |
 |------|------|
-| `tools.js` | 定义 11 个工具：remember, correct, rethink, note, lookup, erase, search, review, reread, msg, command |
-| `hooks.js` | system prompt 注入 hook，将记忆内容注入到 agent context |
-
-#### memory/ - 记忆系统
-
-| 文件 | 职责 |
-|------|------|
-| `memory.js` | 记忆读写操作，支持 resident/index/sessions 三种类型 |
-| `sessions.js` | 会话历史管理，搜索和读取历史会话 |
-| `extractor.js` | 记忆生命周期管理（积累/巩固/蒸馏三阶段） |
+| `tools.js` | 定义 2 个工具：msg（异步消息）、command（团队管理） |
+| `hooks.js` | messagesTransform（添加 [from boss]）+ systemTransform（注入团队上下文和协作规则） |
 
 #### team/ - 团队管理
 
 | 文件 | 职责 |
 |------|------|
-| `config.js` | 加载团队配置 (team.json, agent.json) |
+| `config.js` | 加载团队配置 (team.json)，校验 leader 在 agents 列表中 |
 | `serve.js` | 团队服务管理，多实例支持，agent 间通信 |
 
 ### 数据流
@@ -97,12 +78,9 @@ src/team/serve.js (启动/停止/监控团队)
            ▼
      src/index.js (插件入口)
            │
-           ├─▶ src/plugin/tools.js (注册工具)
+           ├─▶ src/plugin/tools.js (注册 msg/command)
            │
-           └─▶ src/plugin/hooks.js (注入记忆)
-                 │
-                 ▼
-           src/memory/memory.js (读写记忆)
+           └─▶ src/plugin/hooks.js (注入团队上下文)
 ```
 
 ## 运行时数据
@@ -114,12 +92,5 @@ src/team/serve.js (启动/停止/监控团队)
 ├── team.json                 # 团队配置
 ├── <agent>.md                # agent 提示词
 ├── .runtime.json             # 服务运行状态
-├── .active-sessions.json     # 活跃会话映射
-│
-└── <agent>/                  # agent 数据目录
-    ├── agent.json            # 记忆配置
-    ├── sessions.json         # 会话历史
-    └── memories/             # 记忆存储
-        ├── persona.mem       # 常驻记忆
-        └── projects/         # 笔记详情
+└── .active-sessions.json     # 活跃会话映射
 ```
