@@ -18,7 +18,7 @@ import { extractMemories } from '../memory/extractor.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('hooks');
-import { fetchSession } from '../utils/api.js';
+import { fetchSession, fetchMessages } from '../utils/api.js';
 
 /**
  * Parse agent name from full format (team/agent or just agent)
@@ -145,7 +145,8 @@ function getLatestUserMessage(messages) {
  * Create hooks for the plugin
  */
 export function createHooks() {
-  const processedSessions = new Set();
+  // Track last analyzed message count per session (instead of just processed/not)
+  const lastAnalyzedCount = new Map(); // sessionID -> number of messages when last analyzed
   const pendingPath = path.join(PATHS.AGENTS_DIR, '.pending-sessions.json');
   // Track hints already shown in this session to avoid repetition
   const shownHints = new Map(); // sessionID -> Set of "indexName/key"
@@ -179,13 +180,12 @@ export function createHooks() {
      * Event hook - track session idle and trigger memory extraction
      */
     event: async ({ event }) => {
+      log.debug('Event received', { type: event.type, sessionID: event.properties?.sessionID });
       if (event.type !== 'session.idle') return;
 
       const sessionID = event.properties?.sessionID;
+      log.info('Session idle detected', { sessionID });
       if (!sessionID) return;
-
-      if (processedSessions.has(sessionID)) return;
-      processedSessions.add(sessionID);
 
       // Save to pending for session history tracking
       let pending = [];
@@ -207,31 +207,49 @@ export function createHooks() {
       // Memory Extractor: Analyze conversation and extract memories
       // Run asynchronously to not block the event handler
       (async () => {
+        log.debug('Starting extraction async block', { sessionID });
         try {
           const serveUrl = findActiveServeUrl();
+          log.debug('Serve URL', { serveUrl });
           if (!serveUrl) return;
 
           const agent = await getCurrentAgent(sessionID);
+          log.debug('Got agent for extraction', { agent: agent?.full });
           if (!agent) return;
 
-          // Get session directory
+          // Get session directory (support both old and new API)
           const session = await fetchSession(serveUrl, sessionID);
-          if (!session?.share?.directory) return;
+          const directory = session?.directory || session?.share?.directory;
+          log.debug('Got session', { hasDirectory: !!directory, directory });
+          if (!directory) return;
 
           // Skip system sessions (like extractor session itself)
-          if (session.metadata?.system) {
-            log.debug('Skipping system session for extraction', { sessionID });
+          // Check both metadata and title prefix since metadata may not be persisted
+          if (session.metadata?.system || session.title?.startsWith('[系统]')) {
+            log.debug('Skipping system session for extraction', { sessionID, title: session.title });
             return;
           }
 
-          log.info('Triggering memory extraction', { sessionID, agent: agent.full });
+          // Get message count to check if there are new messages
+          const messages = await fetchMessages(serveUrl, sessionID);
+          const messageCount = messages?.length || 0;
+          const lastCount = lastAnalyzedCount.get(sessionID) || 0;
+
+          if (messageCount <= lastCount) {
+            log.debug('No new messages since last analysis', { sessionID, messageCount, lastCount });
+            return;
+          }
+
+          // Update last analyzed count
+          lastAnalyzedCount.set(sessionID, messageCount);
+          log.info('Triggering memory extraction', { sessionID, agent: agent.full, newMessages: messageCount - lastCount });
 
           const result = await extractMemories(
             serveUrl,
             sessionID,
             agent.team,
             agent.name,
-            session.share.directory
+            directory
           );
 
           if (result.extracted) {
@@ -251,11 +269,14 @@ export function createHooks() {
     /**
      * System transform hook - inject memory and memory hints
      */
-    systemTransform: async ({ sessionID, messages }, output) => {
+    systemTransform: async (input, output) => {
+      const { sessionID } = input;
+      log.debug('systemTransform called', { sessionID });
       try {
         // Skip special requests (title generator, etc.)
         const existingSystem = output.system?.join?.('') || output.system || '';
         if (existingSystem.includes('title generator') || existingSystem.includes('You output ONLY')) {
+          log.debug('Skipping special request');
           return;
         }
 
@@ -288,6 +309,7 @@ export function createHooks() {
 
         // Get current agent
         const agent = await getCurrentAgent(sessionID);
+        log.debug('Got agent', { agent: agent?.full || 'null' });
         if (!agent) return;
 
         // Validate sessions
@@ -303,9 +325,13 @@ export function createHooks() {
           }
 
           // Memory Injector: Find and hint relevant index entries
+          // Fetch messages via API since systemTransform doesn't provide them
+          const messages = await fetchMessages(serveUrl, sessionID);
           const userMessage = getLatestUserMessage(messages);
+          log.debug('User message for hints', { userMessage: userMessage?.slice(0, 100) });
           if (userMessage) {
             const relevantEntries = findRelevantEntries(agent.team, agent.name, userMessage);
+            log.debug('Relevant entries found', { count: relevantEntries.length });
 
             // Filter out already shown hints in this session
             if (!shownHints.has(sessionID)) {

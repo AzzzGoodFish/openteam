@@ -139,6 +139,9 @@ function parseExtractorResponse(text) {
     if (cleanText.startsWith('```')) {
       cleanText = cleanText.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
     }
+    // Remove common agent prefixes like "fish: " that appear before YAML content
+    // Pattern: word + colon + space + YAML key (extract/memories)
+    cleanText = cleanText.replace(/^[a-zA-Z]+:\s*(?=extract:|memories:)/i, '');
 
     const result = YAML.parse(cleanText);
 
@@ -225,6 +228,7 @@ export async function extractMemories(serveUrl, sessionID, teamName, agentName, 
 
     // 2. Format conversation (last 1 exchange for efficiency)
     const conversation = formatConversation(messages, 1);
+    log.debug('Formatted conversation', { conversation: conversation.slice(0, 500) });
     if (!conversation) {
       log.debug('Skipping: no valid conversation content');
       return { extracted: false, reason: '无有效对话内容' };
