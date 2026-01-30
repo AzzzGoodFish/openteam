@@ -127,12 +127,12 @@ actions:
 
 actions: []`;
 
-function getMemoryStatePath(teamName) {
-  return path.join(getTeamDir(teamName), '.memory-state.json');
+function getMemoryStatePath(teamName, agentName) {
+  return path.join(getTeamDir(teamName), agentName, '.memory-state.json');
 }
 
-export function readMemoryState(teamName) {
-  const statePath = getMemoryStatePath(teamName);
+export function readMemoryState(teamName, agentName) {
+  const statePath = getMemoryStatePath(teamName, agentName);
   if (!fs.existsSync(statePath)) {
     return { ...DEFAULT_STATE };
   }
@@ -151,6 +151,7 @@ export function readMemoryState(teamName) {
     log.warn('Failed to read memory state', {
       event: 'memory_state_read_failed',
       team: teamName,
+      agent: agentName,
       error: error.message,
     });
     return { ...DEFAULT_STATE };
@@ -166,7 +167,6 @@ function normalizePendingSessions(pendingSessions) {
     if (!sessionID) continue;
 
     normalized.push({
-      agent: entry.agent,
       sessionID,
       messageCount: entry.messageCount,
       timestamp: normalizeTimestamp(entry.timestamp),
@@ -214,11 +214,11 @@ function applyModelHint(state, hint) {
   return { ...state, lastModelHint: normalized };
 }
 
-export function writeMemoryState(teamName, state) {
-  const statePath = getMemoryStatePath(teamName);
-  const teamDir = getTeamDir(teamName);
-  if (!fs.existsSync(teamDir)) {
-    fs.mkdirSync(teamDir, { recursive: true });
+export function writeMemoryState(teamName, agentName, state) {
+  const statePath = getMemoryStatePath(teamName, agentName);
+  const dir = path.dirname(statePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 
   try {
@@ -235,11 +235,11 @@ export function writeMemoryState(teamName, state) {
 }
 
 export function markPendingSession(teamName, agentName, sessionID, messageCount) {
-  const state = readMemoryState(teamName);
+  const state = readMemoryState(teamName, agentName);
   const pendingSessions = normalizePendingSessions(state.pendingSessions);
   const now = new Date().toISOString();
 
-  const existing = pendingSessions.find((entry) => entry.sessionID === sessionID && entry.agent === agentName);
+  const existing = pendingSessions.find((entry) => entry.sessionID === sessionID);
   if (existing) {
     if (existing.messageCount === messageCount) {
       log.info('Pending session unchanged', {
@@ -255,7 +255,6 @@ export function markPendingSession(teamName, agentName, sessionID, messageCount)
     existing.timestamp = now;
   } else {
     pendingSessions.push({
-      agent: agentName,
       sessionID,
       messageCount,
       timestamp: now,
@@ -267,7 +266,7 @@ export function markPendingSession(teamName, agentName, sessionID, messageCount)
     pendingSessions,
   };
 
-  writeMemoryState(teamName, nextState);
+  writeMemoryState(teamName, agentName, nextState);
   log.info('Pending session recorded', {
     event: 'pending_session_marked',
     team: teamName,
@@ -934,8 +933,8 @@ export async function consolidate(teamName, agentName, serveUrl, directory) {
     agent: agentName,
   });
 
-  const state = readMemoryState(teamName);
-  const pendingSessions = normalizePendingSessions(state.pendingSessions).filter((entry) => entry.agent === agentName);
+  const state = readMemoryState(teamName, agentName);
+  const pendingSessions = normalizePendingSessions(state.pendingSessions);
 
   if (pendingSessions.length === 0) {
     log.info('No pending sessions for consolidation', {
@@ -1021,13 +1020,13 @@ export async function consolidate(teamName, agentName, serveUrl, directory) {
 
   const nextState = applyModelHint(state, providerHint);
   if (summary.failed === 0) {
-    writeMemoryState(teamName, {
+    writeMemoryState(teamName, agentName, {
       ...nextState,
-      pendingSessions: (state.pendingSessions || []).filter((entry) => entry.agent !== agentName),
+      pendingSessions: [],
       lastConsolidation: new Date().toISOString(),
     });
   } else if (nextState !== state) {
-    writeMemoryState(teamName, nextState);
+    writeMemoryState(teamName, agentName, nextState);
   }
 
   return {
@@ -1045,8 +1044,8 @@ export async function distill(teamName, agentName, serveUrl, directory) {
     agent: agentName,
   });
 
-  const state = readMemoryState(teamName);
-  const pendingSessions = normalizePendingSessions(state.pendingSessions).filter((entry) => entry.agent === agentName);
+  const state = readMemoryState(teamName, agentName);
+  const pendingSessions = normalizePendingSessions(state.pendingSessions);
   const thresholds = getDistillationThresholds(teamName);
   const inventory = getMemoryInventory(teamName, agentName);
   const inventoryMap = buildInventoryMap(inventory);
@@ -1119,12 +1118,12 @@ export async function distill(teamName, agentName, serveUrl, directory) {
 
   const nextState = applyModelHint(state, providerHint);
   if (summary.failed === 0) {
-    writeMemoryState(teamName, {
+    writeMemoryState(teamName, agentName, {
       ...nextState,
       lastDistillation: new Date().toISOString(),
     });
   } else if (nextState !== state) {
-    writeMemoryState(teamName, nextState);
+    writeMemoryState(teamName, agentName, nextState);
   }
 
   return {

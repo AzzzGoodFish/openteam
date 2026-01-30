@@ -219,10 +219,10 @@ OpenTeam 支持自动记忆维护，Agent 无需主动调用记忆工具：
 ├── architect.md
 ├── .runtime.json             # 服务运行时状态
 ├── .active-sessions.json     # 活跃会话映射
-├── .memory-state.json        # 记忆生命周期状态（待巩固列表、上次巩固/蒸馏时间）
 │
 └── <agent>/                  # Agent 数据
     ├── agent.json            # 记忆配置
+    ├── .memory-state.json    # 记忆生命周期状态（待巩固列表、上次巩固/蒸馏时间）
     ├── sessions.json         # 会话历史
     └── memories/             # 记忆存储
         ├── persona.mem       # 常驻记忆

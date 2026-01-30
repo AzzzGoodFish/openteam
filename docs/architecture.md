@@ -140,10 +140,12 @@ Leader-Member 模式：
 ### 运行时文件
 
 ```
-.runtime.json             # 服务状态
-.active-sessions.json     # 活跃会话映射
-sessions.json             # 会话历史
-memories/*.mem            # 记忆文件
+.runtime.json             # 服务状态（团队级）
+.active-sessions.json     # 活跃会话映射（团队级）
+<agent>/
+  .memory-state.json      # 记忆生命周期状态（agent 级）
+  sessions.json           # 会话历史
+  memories/*.mem          # 记忆文件
 ```
 
 ## 消息格式

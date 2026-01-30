@@ -262,10 +262,8 @@ export function createHooks() {
           markPendingSession(agent.team, agent.name, sessionID, messageCount);
 
           const runLifecycle = async (context) => {
-            const state = readMemoryState(context.agent.team);
-            const pendingSessions = (state.pendingSessions || []).filter(
-              (entry) => entry.agent === context.agent.name
-            );
+            const state = readMemoryState(context.agent.team, context.agent.name);
+            const pendingSessions = state.pendingSessions || [];
             const consolidationThresholds = getConsolidationThresholds(context.agent.team);
             const now = Date.now();
             const lastConsolidationMs = toTimestampMs(state.lastConsolidation);
@@ -294,7 +292,7 @@ export function createHooks() {
             await consolidate(context.agent.team, context.agent.name, context.serveUrl, context.directory);
 
             const distillationThresholds = getDistillationThresholds(context.agent.team);
-            const distillationState = readMemoryState(context.agent.team);
+            const distillationState = readMemoryState(context.agent.team, context.agent.name);
             const inventory = getMemoryInventory(context.agent.team, context.agent.name);
             const lastDistillationMs = toTimestampMs(distillationState.lastDistillation);
             const timeSinceDistillation = lastDistillationMs ? now - lastDistillationMs : null;

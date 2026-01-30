@@ -63,7 +63,7 @@ idle 触发时：
 
 ### 存储位置
 
-`~/.opencode/agents/<team>/.memory-state.json`：
+`~/.opencode/agents/<team>/<agent>/.memory-state.json`（每个 agent 独立）：
 
 ```json
 {
