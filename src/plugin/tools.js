@@ -361,7 +361,7 @@ export function createToolDefs() {
 
     tell: {
       description:
-        '告诉某人一件事（异步，不等回复）。所有人都能用。Leader 可以广播给所有人。',
+        '告诉某人一件事（异步，不等回复）。只有通过 tell 才能与其他 agent 通信，直接输出文字对方看不到。收到 [from xxx] 消息时必须用 tell 回复。Leader 可以广播给所有人。',
       args: {
         who: tool.schema
           .string()
@@ -451,7 +451,7 @@ export function createToolDefs() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       agent: `${currentAgent.team}/${target}`,
-                      parts: [{ type: 'text', text: `[来自 ${currentAgent.name}] ${args.message}` }],
+                      parts: [{ type: 'text', text: `[from ${currentAgent.name}] ${args.message}` }],
                     }),
                   }
                 );

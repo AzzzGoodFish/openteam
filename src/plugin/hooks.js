@@ -87,6 +87,23 @@ export function createHooks() {
 
   return {
     /**
+     * Chat message hook - add [from boss] prefix if no [from xxx] tag
+     */
+    'chat.message': async (_input, output) => {
+      if (!output.parts || output.parts.length === 0) return;
+
+      // Find first text part
+      const firstTextPart = output.parts.find((p) => p.type === 'text');
+      if (!firstTextPart || !firstTextPart.text) return;
+
+      // Check if message already has [from xxx] prefix
+      if (firstTextPart.text.match(/^\[from\s+\w+\]/)) return;
+
+      // Add [from boss] prefix
+      firstTextPart.text = `[from boss] ${firstTextPart.text}`;
+    },
+
+    /**
      * Event hook - track session idle
      */
     event: async ({ event }) => {
