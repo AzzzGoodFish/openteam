@@ -664,14 +664,22 @@ async function cmdStatus(teamName) {
   const activeSessions = loadActiveSessions(teamName);
   const serveUrl = `http://${runtime.host}:${runtime.port}`;
 
-  for (const [agent, sessionId] of Object.entries(activeSessions)) {
-    const exists = await sessionExists(serveUrl, sessionId);
-    if (exists) {
-      const session = await fetchSession(serveUrl, sessionId);
-      const title = session?.title || 'Untitled';
-      console.log(`  - ${agent}: ${sessionId} (${title})`);
-    } else {
-      console.log(`  - ${agent}: ${sessionId} ${RED}(已失效)${NC}`);
+  for (const [agent, instances] of Object.entries(activeSessions)) {
+    // Handle both new format (array) and legacy format (string)
+    const instanceList = Array.isArray(instances)
+      ? instances
+      : [{ sessionId: instances, cwd: null }];
+
+    for (const inst of instanceList) {
+      const exists = await sessionExists(serveUrl, inst.sessionId);
+      const cwdHint = inst.cwd ? ` @ ${inst.cwd}` : '';
+      if (exists) {
+        const session = await fetchSession(serveUrl, inst.sessionId);
+        const title = session?.title || 'Untitled';
+        console.log(`  - ${agent}: ${inst.sessionId} (${title})${cwdHint}`);
+      } else {
+        console.log(`  - ${agent}: ${inst.sessionId} ${RED}(已失效)${NC}${cwdHint}`);
+      }
     }
   }
 }
