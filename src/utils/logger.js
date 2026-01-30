@@ -1,18 +1,21 @@
 /**
  * Logger utility for openteam
  *
- * Enable logging by setting environment variable:
- *   OPENTEAM_LOG=1 or OPENTEAM_LOG=file - Enable file logging
+ * 配置优先级: 环境变量 > settings.json > 默认值
  *
- * Log level:
- *   OPENTEAM_LOG_LEVEL=debug|info|warn|error (default: info)
+ * 环境变量（覆盖 settings）:
+ *   OPENTEAM_LOG=1       启用日志
+ *   OPENTEAM_LOG_LEVEL=debug|info|warn|error
  *
- * Log file location: ~/.openteam/openteam.log
+ * settings.json:
+ *   { "log": { "enabled": true, "level": "info" } }
+ *
+ * 日志文件: ~/.openteam/openteam.log
  */
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { PATHS } from '../constants.js';
 
 const LOG_LEVELS = {
   debug: 0,
@@ -21,63 +24,69 @@ const LOG_LEVELS = {
   error: 3,
 };
 
-// Log configuration from environment
-const LOG_MODE = process.env.OPENTEAM_LOG || '';
-const LOG_LEVEL = process.env.OPENTEAM_LOG_LEVEL || 'info';
+// 延迟求值：首次写日志时才读配置，避免循环依赖
+let resolved = false;
+let isEnabled = false;
+let minLevel = LOG_LEVELS.info;
 
-// Parse log mode
-const isEnabled = LOG_MODE !== '';
+function resolve() {
+  if (resolved) return;
+  resolved = true;
 
-const openteamDir = path.join(os.homedir(), '.openteam');
-const logFilePath = path.join(openteamDir, 'openteam.log');
-const minLevel = LOG_LEVELS[LOG_LEVEL] ?? LOG_LEVELS.info;
+  // 先读 settings.json（直接读文件，避免循环依赖 settings.js）
+  let settings = {};
+  try {
+    if (fs.existsSync(PATHS.SETTINGS)) {
+      settings = JSON.parse(fs.readFileSync(PATHS.SETTINGS, 'utf8'));
+    }
+  } catch {
+    // ignore
+  }
 
-/**
- * Format timestamp
- */
+  const envLog = process.env.OPENTEAM_LOG;
+  const envLevel = process.env.OPENTEAM_LOG_LEVEL;
+
+  isEnabled = envLog ? envLog !== '' : !!settings?.log?.enabled;
+  const levelStr = envLevel || settings?.log?.level || 'info';
+  minLevel = LOG_LEVELS[levelStr] ?? LOG_LEVELS.info;
+}
+
+const logFilePath = path.join(PATHS.OPENTEAM_DIR, 'openteam.log');
+
 function timestamp() {
   return new Date().toISOString();
 }
 
-/**
- * Format log message
- */
 function formatMessage(level, module, message, data) {
   const ts = timestamp();
   const dataStr = data ? ' ' + JSON.stringify(data) : '';
   return `[${ts}] [${level.toUpperCase()}] [${module}] ${message}${dataStr}`;
 }
 
-// Ensure log directory exists (only once)
 let dirEnsured = false;
 function ensureLogDir() {
   if (dirEnsured) return;
   try {
-    if (!fs.existsSync(openteamDir)) {
-      fs.mkdirSync(openteamDir, { recursive: true });
+    if (!fs.existsSync(PATHS.OPENTEAM_DIR)) {
+      fs.mkdirSync(PATHS.OPENTEAM_DIR, { recursive: true });
     }
     dirEnsured = true;
   } catch {
-    // Silently ignore
+    // ignore
   }
 }
 
-/**
- * Write to log file
- */
 function writeToFile(formatted) {
   try {
     ensureLogDir();
     fs.appendFileSync(logFilePath, formatted + '\n');
   } catch {
-    // Silently ignore write errors
+    // ignore
   }
 }
 
-/**
- * Core log function
- */
 function log(level, module, message, data = null) {
+  resolve();
   if (!isEnabled) return;
   if (LOG_LEVELS[level] < minLevel) return;
 
@@ -85,9 +94,6 @@ function log(level, module, message, data = null) {
   writeToFile(formatted);
 }
 
-/**
- * Create a logger instance for a specific module
- */
 export function createLogger(module) {
   return {
     debug: (message, data) => log('debug', module, message, data),
@@ -97,16 +103,10 @@ export function createLogger(module) {
   };
 }
 
-/**
- * Get log file path
- */
 export function getLogFilePath() {
   return logFilePath;
 }
 
-/**
- * Clear log file
- */
 export function clearLog() {
   try {
     if (fs.existsSync(logFilePath)) {
@@ -118,9 +118,7 @@ export function clearLog() {
   }
 }
 
-/**
- * Check if logging is enabled
- */
 export function isLoggingEnabled() {
+  resolve();
   return isEnabled;
 }

@@ -6,6 +6,8 @@ const homeDir = os.homedir();
 export const PATHS = {
   OPENCODE_DIR: path.join(homeDir, '.opencode'),
   AGENTS_DIR: path.join(homeDir, '.opencode/agents'),
+  OPENTEAM_DIR: path.join(homeDir, '.openteam'),
+  SETTINGS: path.join(homeDir, '.openteam', 'settings.json'),
 };
 
 export const FILES = {
