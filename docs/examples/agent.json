@@ -1,0 +1,44 @@
+{
+  "name": "pm",
+  "team": "example-team",
+  "description": "产品经理，负责需求管理和团队协调",
+  "memories": [
+    {
+      "name": "persona",
+      "type": "resident",
+      "limit": 1000,
+      "readonly": true,
+      "description": "我是谁，我的角色和职责"
+    },
+    {
+      "name": "human",
+      "type": "resident",
+      "limit": 800,
+      "description": "关于用户的信息"
+    },
+    {
+      "name": "status",
+      "type": "resident",
+      "limit": 500,
+      "description": "当前工作状态"
+    },
+    {
+      "name": "projects",
+      "type": "index",
+      "limit": 1500,
+      "description": "项目笔记本"
+    },
+    {
+      "name": "specs",
+      "type": "index",
+      "limit": 1000,
+      "description": "需求规格笔记本"
+    },
+    {
+      "name": "sessions",
+      "type": "sessions",
+      "limit": 2000,
+      "description": "历史会话记录"
+    }
+  ]
+}
