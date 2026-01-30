@@ -67,8 +67,14 @@ openteam/
 
 | 工具 | 作用 | 权限 |
 |------|------|------|
-| tell | 异步通知，不等回复 | 所有人（leader 可广播） |
+| tell | 异步通知，自动唤醒离线 agent | 所有人（leader 可广播） |
 | command | 管理指令，同步等结果 | 仅 leader |
+
+**tell 自动唤醒**：
+- 若目标 agent 不在线，自动创建 session 并唤醒
+- 使用当前 agent 的 cwd 作为默认工作目录
+- 自动添加 pane 到 monitor
+- 然后发送消息
 
 #### command 支持的 action
 

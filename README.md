@@ -127,7 +127,7 @@ openteam stop myteam
 
 | Tool | Description |
 |------|-------------|
-| `tell` | Send async notification (all agents, leader can broadcast) |
+| `tell` | Send async notification. Auto wakes up offline agents. Leader can broadcast to all |
 | `command` | Leader only: status, assign, free, redirect |
 
 #### command actions
