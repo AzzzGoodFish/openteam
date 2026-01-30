@@ -404,16 +404,41 @@ export function createToolDefs() {
           targets = [args.who];
         }
 
+        // Get current agent's cwd for waking up offline agents
+        const currentInstances = getAgentInstances(currentAgent.team, currentAgent.name);
+        const defaultCwd = currentInstances[0]?.cwd || process.cwd();
+
         // Send to all targets (async, don't wait for response)
         const results = [];
         for (const target of targets) {
-          const instances = getAgentInstances(currentAgent.team, target);
+          let instances = getAgentInstances(currentAgent.team, target);
+
+          // If agent is offline, wake it up by creating a new session
           if (instances.length === 0) {
-            results.push(`${target}: 不在线`);
-            continue;
+            const metadata = {
+              agent: `${currentAgent.team}/${target}`,
+              team: currentAgent.team,
+              role: target,
+            };
+            const session = await createSession(
+              serveUrl,
+              defaultCwd,
+              `${target} 工作区`,
+              metadata
+            );
+            if (session) {
+              addInstance(currentAgent.team, target, { sessionId: session.id, cwd: defaultCwd });
+              addPaneToMonitor(currentAgent.team, target, defaultCwd);
+              instances = [{ sessionId: session.id, cwd: defaultCwd }];
+              results.push(`${target}: 已唤醒`);
+            } else {
+              results.push(`${target}: 唤醒失败`);
+              continue;
+            }
           }
 
           // Send to first active instance
+          let sent = false;
           for (const inst of instances) {
             const exists = await sessionExists(serveUrl, inst.sessionId);
             if (exists) {
@@ -429,9 +454,15 @@ export function createToolDefs() {
                   }),
                 }
               ).catch(() => {});
-              results.push(`${target}: 已通知`);
+              if (!results.includes(`${target}: 已唤醒`)) {
+                results.push(`${target}: 已通知`);
+              }
+              sent = true;
               break;
             }
+          }
+          if (!sent && !results.some(r => r.startsWith(`${target}:`))) {
+            results.push(`${target}: 发送失败`);
           }
         }
 
