@@ -9,8 +9,10 @@ import { createHooks } from './plugin/hooks.js';
 import { createToolDefs } from './plugin/tools.js';
 
 const OpenTeamPlugin = async (ctx) => {
+  console.error('[openteam] Plugin loading...');
   const hooks = createHooks(ctx);
   const toolDefs = createToolDefs(ctx);
+  console.error('[openteam] Plugin loaded, hooks:', Object.keys(hooks));
 
   // Convert tool definitions to OpenCode format
   const tools = {};
@@ -25,6 +27,7 @@ const OpenTeamPlugin = async (ctx) => {
   return {
     event: hooks.event,
     'experimental.chat.system.transform': hooks.systemTransform,
+    'experimental.chat.messages.transform': hooks.messagesTransform,
     tool: tools,
   };
 };

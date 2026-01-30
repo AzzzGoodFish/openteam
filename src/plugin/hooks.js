@@ -93,13 +93,12 @@ function getCollaborationRules() {
 ### 通信方式
 - 只有通过 \`tell\` 工具才能与其他 agent 通信
 - 直接输出文字对方看不到
-- 收到 \`[from xxx]\` 消息时必须用 \`tell\` 回复发送者
+- 收到 \`[from agent]\` 消息时必须用 \`tell\` 回复发送者
 
-### Boss 消息特别注意
-当收到 \`[from boss]\` 消息时，说明老板亲自介入。这通常意味着：
-- 工作方向可能有偏差
-- 理解可能有误
-- 需要纠正某些认知
+### Boss 消息回复方式
+- 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中）
+- **禁止**用 \`tell(who="boss", ...)\`，boss 不是 agent
+- Boss 亲自介入通常意味着工作有偏差，需反思是否更新记忆
 
 **必须反思**：是否需要使用 \`correct\` 或 \`rethink\` 更新记忆？
 </collaboration-rules>`;
@@ -114,20 +113,27 @@ export function createHooks() {
 
   return {
     /**
-     * Chat message hook - add [from boss] prefix if no [from xxx] tag
+     * Messages transform hook - add [from boss] prefix to user messages without [from xxx] tag
      */
-    'chat.message': async (_input, output) => {
-      if (!output.parts || output.parts.length === 0) return;
+    messagesTransform: async (_input, output) => {
+      if (!output.messages || output.messages.length === 0) return;
 
-      // Find first text part
-      const firstTextPart = output.parts.find((p) => p.type === 'text');
-      if (!firstTextPart || !firstTextPart.text) return;
+      // Find the last user message and add [from boss] prefix if needed
+      for (let i = output.messages.length - 1; i >= 0; i--) {
+        const msg = output.messages[i];
+        if (msg.info?.role !== 'user') continue;
 
-      // Check if message already has [from xxx] prefix
-      if (firstTextPart.text.match(/^\[from\s+\w+\]/)) return;
+        // Find first non-synthetic text part
+        const textPart = msg.parts?.find((p) => p.type === 'text' && !p.synthetic);
+        if (!textPart?.text) continue;
 
-      // Add [from boss] prefix
-      firstTextPart.text = `[from boss] ${firstTextPart.text}`;
+        // Skip if already has [from xxx] prefix
+        if (/^\[from\s+\w+\]/.test(textPart.text)) break;
+
+        // Add [from boss] prefix
+        textPart.text = `[from boss] ${textPart.text}`;
+        break;
+      }
     },
 
     /**
