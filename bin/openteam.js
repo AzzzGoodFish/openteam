@@ -732,4 +732,12 @@ program
   .option('--dir <directory>', '项目目录')
   .action(cmdMonitor);
 
+program
+  .command('dashboard <team>')
+  .description('实时显示团队状态仪表盘')
+  .action(async (team) => {
+    const { dashboard } = await import('../src/dashboard/index.js');
+    await dashboard(team);
+  });
+
 program.parse();

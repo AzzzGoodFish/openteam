@@ -22,3 +22,15 @@ node_modules/
 
 # Worktrees
 .worktrees/
+
+# AI tool caches
+.claude/
+.opencode/
+
+# BMAD-METHOD
+_bmad/
+_bmad-output/
+
+# Auto-generated docs
+DASHBOARD_SUMMARY.md
+DASHBOARD_VERIFICATION.md
