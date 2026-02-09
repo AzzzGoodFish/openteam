@@ -173,7 +173,7 @@ export function createToolDefs() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      agent: `${currentAgent.team}/${target}`,
+                      agent: target,
                       parts: [{ type: 'text', text: `[from ${currentAgent.name}] ${args.message}` }],
                     }),
                     signal: controller.signal,

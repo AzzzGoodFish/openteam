@@ -5,8 +5,9 @@
 OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 - **团队协作**: Leader-Member 模式，支持 agent 间通信
 - **多实例支持**: 一个 agent 可在多个工作目录运行
+- **运行态可视化**: `monitor` 分屏 + `dashboard` 仪表盘
 
-> **注意**：记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+> OpenTeam 只做协作编排；memory 能力不在本仓库内。
 
 ## 技术栈
 
@@ -27,7 +28,8 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 ├─────────────────────────────────────────────────────────┤
 │  CLI (bin/openteam.js)    │    OpenCode Session         │
 │  - start/stop/attach      │    - 通过插件加载           │
-│  - monitor/status         │                             │
+│  - monitor/status/list    │                             │
+│  - dashboard              │                             │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -45,7 +47,15 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 ├─────────────────────────────────────────────────────────┤
 │  src/team/                │    src/utils/                │
 │  - serve.js (团队服务)    │    - api.js (HTTP API)      │
-│  - config.js (配置加载)   │    - logger.js (日志)       │
+│  - config.js (配置加载)   │    - agent.js (身份识别)     │
+│                           │    - logger.js/settings.js  │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────┐
+│                   Dashboard 层                           │
+├─────────────────────────────────────────────────────────┤
+│  src/dashboard/           # 团队状态 TUI                │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -81,7 +91,7 @@ Leader-Member 模式：
 2. command (团队管理)
 
 **hooks.js** - 两个 hook：
-- `messagesTransform`: 给无来源消息添加 `[from boss]`
+- `messagesTransform`: 给最近一条 user 文本消息添加 `[from boss]`
 - `systemTransform`: 注入团队上下文 + 协作规则
 
 ## 数据架构
@@ -102,23 +112,25 @@ Leader-Member 模式：
 ### 运行时文件
 
 ```
-.runtime.json             # 服务状态（团队级）
+.runtime.json             # 服务状态（团队级，含 monitor 信息）
 .active-sessions.json     # 活跃会话映射（团队级）
 ```
 
+`.active-sessions.json` 采用多实例结构：`agent -> [{ sessionId, cwd, alias? }]`，并兼容旧字符串格式。
+
 ## 消息格式
 
-所有消息都有 `[from xxx]` 前缀：
+消息来源标记规则：
 
 | 来源 | 格式 | 说明 |
 |------|------|------|
 | agent 间 | `[from <agent>]` | msg 工具自动添加 |
-| 用户直接输入 | `[from boss]` | hook 自动添加 |
+| 用户直接输入 | `[from boss]` | hook 只处理最近一条 user 文本消息 |
 
 ## 扩展点
 
 1. **新增工具**: 修改 `src/plugin/tools.js`
-2. **新增 command action**: 修改 `src/team/serve.js`
+2. **新增 command action**: 修改 `src/plugin/tools.js` 中 `command` 分支
 
 ## 相关文档
 

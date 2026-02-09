@@ -8,10 +8,10 @@
 |------|-----|
 | **类型** | CLI 工具 + OpenCode 插件 |
 | **语言** | JavaScript (ES Modules) |
-| **架构** | 插件架构 + CLI 工具 |
+| **架构** | CLI 编排 + 插件 Hook/Tools |
 | **入口点** | `bin/openteam.js` (CLI), `src/index.js` (Library) |
 
-> 记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+> OpenTeam 仅负责团队协作；memory 功能请使用独立插件 `openmemory`。
 
 ## 快速参考
 
@@ -35,7 +35,6 @@
 
 | 文档 | 说明 |
 |------|------|
-| [Multi-Worktree Support](./plans/2025-01-26-multi-worktree-support.md) | 多工作树支持规划 |
 | [Team Communication](./plans/2025-01-26-team-communication.md) | 团队通信规划 |
 
 ## 快速开始
@@ -63,13 +62,23 @@ mkdir -p ~/.opencode/agents/myteam
 openteam start myteam
 ```
 
+### 4. 常用命令
+
+```bash
+openteam attach myteam
+openteam monitor myteam
+openteam status myteam
+openteam dashboard myteam
+```
+
 ## 核心功能模块
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | 插件 | `src/plugin/` | tools.js (msg/command), hooks.js |
 | 团队 | `src/team/` | config.js, serve.js |
-| 工具 | `src/utils/` | api.js, logger.js |
+| 工具 | `src/utils/` | api.js, agent.js, logger.js, settings.js |
+| 仪表盘 | `src/dashboard/` | 实时团队状态 TUI |
 
 ## 项目状态
 

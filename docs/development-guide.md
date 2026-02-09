@@ -34,7 +34,7 @@ openteam/
 └── src/utils/           # 工具函数
 ```
 
-> 记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+> OpenTeam 仅负责协作编排；memory 功能不在本仓库。
 
 ## 开发命令
 
@@ -50,14 +50,19 @@ openteam/
 # 启动团队
 openteam start <team>
 
-# 后台启动（透传 OPENMEMORY 环境变量）
+# 后台启动
 openteam start <team> -d
 
 # 附加到会话
 openteam attach <team> [agent]
+openteam attach <team> [agent] --watch
+openteam attach <team> [agent] --watch --cwd /path/to/project
 
 # 监控所有 agent
 openteam monitor <team>
+
+# 实时仪表盘
+openteam dashboard <team>
 
 # 查看状态
 openteam status <team>
@@ -102,8 +107,10 @@ mkdir -p ~/.opencode/agents/<team-name>
 
 | 文件 | 说明 |
 |------|------|
-| `.runtime.json` | 服务运行状态 |
-| `.active-sessions.json` | 活跃会话映射 |
+| `.runtime.json` | 服务运行状态（含 monitor 信息） |
+| `.active-sessions.json` | 活跃会话映射（多实例） |
+
+`.active-sessions.json` 结构为 `agent -> [{ sessionId, cwd, alias? }]`。
 
 ## 调试
 

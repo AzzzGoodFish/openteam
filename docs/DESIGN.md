@@ -1,193 +1,113 @@
 # OpenTeam 设计文档
 
-OpenCode 的 Agent 团队协作插件，提供团队沟通和多实例管理能力。
+OpenTeam 是 OpenCode 的团队协作插件，核心职责是多 Agent 协作与会话编排。
 
-> **注意**：记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+## 设计目标
+
+- 提供明确的 Leader/成员协作边界。
+- 支持同一 agent 在不同工作目录并行运行多个实例。
+- 提供稳定的运行时状态管理与可视化（monitor/dashboard）。
 
 ## 核心概念
 
-### Agent 为中心
+### 1) 团队角色
 
-- 每个 agent 有独立的提示词和角色定义
-- agent 通过记忆知道项目位置，而非依赖工作目录
-- 一个 agent 可以在多个目录同时运行多个实例
+- Leader: 可使用 `msg` 广播、`command` 管理团队。
+- 成员: 可使用 `msg` 与其他成员点对点协作。
 
-### 团队协作
+### 2) 消息来源标记
 
-- **Leader**：可用 `command` 管理团队，可用 `msg` 广播
-- **成员**：可用 `msg` 与他人沟通
+- agent 之间通过 `msg` 发送时，会自动添加 `[from <agent>]`。
+- 用户直接输入由 `messagesTransform` 对最近一条 user 文本补 `[from boss]`。
 
-### 消息格式
+### 3) 多实例
 
-所有消息都有 `[from xxx]` 前缀，用于识别来源：
-
-| 来源 | 格式 | 说明 |
-|------|------|------|
-| agent 间通信 | `[from <agent>]` | msg 工具自动添加 |
-| 老板直接输入 | `[from boss]` | hook 自动添加 |
-
-**Boss 消息特殊处理**：
-
-当 agent 收到 `[from boss]` 消息时，说明老板亲自介入，通常意味着工作方向有偏差或理解有误。agent 应认真理解并执行 boss 的指示。
+- 同一 agent 可同时存在多个实例，实例由 `cwd` 和可选 `alias` 区分。
+- 会话映射持久化在 `.active-sessions.json`。
 
 ## 插件结构
 
-```
-openteam/
-├── bin/openteam.js          # CLI 工具
-├── src/
-│   ├── index.js             # 插件入口
-│   ├── plugin/tools.js      # 2 个工具（msg/command）
-│   ├── plugin/hooks.js      # system prompt 注入
-│   └── team/                # 团队管理、多实例支持
-└── docs/                    # 文档
-```
-
-## 工具清单
-
-| 工具 | 作用 | 权限 |
-|------|------|------|
-| msg | 发消息（异步，像微信），自动唤醒离线 agent | 所有人（leader 可广播） |
-| command | 管理指令 | 仅 leader |
-
-**msg 自动唤醒**：
-- 若目标 agent 不在线，自动创建 session 并唤醒
-- 使用当前 agent 的 cwd 作为默认工作目录
-- 自动添加 pane 到 monitor
-- 然后发送消息
-
-### command 支持的 action
-
-| Action | 说明 | 参数 |
-|--------|------|------|
-| status | 查看团队状态 | who?（可选，查看单人） |
-| free | 让 agent 休息 | who |
-| redirect | 切换工作目录 | who, cwd |
-
-## 数据结构
-
-### 目录布局
-
-```
-~/.opencode/agents/<team>/
-├── team.json                 # 团队配置
-├── pm.md                     # agent 提示词
-├── architect.md
-├── developer.md
-├── qa.md
-├── .runtime.json             # serve 运行状态
-└── .active-sessions.json     # 活跃会话映射
+```text
+src/
+├── index.js                # OPENTEAM_TEAM 条件加载插件
+├── plugin/
+│   ├── hooks.js            # messages/system transform
+│   └── tools.js            # msg / command
+├── team/
+│   ├── config.js           # team.json 校验
+│   └── serve.js            # runtime/session/monitor
+├── dashboard/
+│   ├── index.js
+│   ├── data.js
+│   └── ui.js
+└── utils/
+    ├── api.js
+    ├── agent.js
+    ├── logger.js
+    └── settings.js
 ```
 
-### team.json
+## 工具契约
+
+| 工具 | 权限 | 关键行为 |
+|------|------|----------|
+| `msg` | 全员（仅 leader 可广播） | 目标离线会自动创建会话并唤醒 |
+| `command` | 仅 leader | 支持 `status` / `free` / `redirect` |
+
+### `command` 行为细节
+
+- `status`: 查看成员实例状态及会话有效性。
+- `free`: 让实例下线；多实例场景必须指定 `cwd` 或 `alias`。
+- `redirect`: 先移除目标成员现有实例，再在新 `cwd` 创建实例。
+
+## CLI 行为模型
+
+### start
+
+- 启动 `opencode serve`，注入 `OPENTEAM_TEAM` 环境变量。
+- 若前台模式，完成后直接 attach 到 leader 会话。
+
+### attach
+
+- 普通模式: 找到可复用会话或创建新会话后 attach。
+- `--watch`: 每 2 秒轮询会话状态；会话结束后继续等待。
+- `--cwd` 当前仅用于 `--watch` 筛选目标实例。
+
+### monitor
+
+- 自动检测复用器（优先 zellij，其次 tmux）。
+- 每 4 个 agent 组成一个 2x2 窗口/tab，不足时用最后一个 agent 补齐。
+- 每个 pane 本质执行 `openteam attach <team> <agent> --watch`。
+
+### dashboard
+
+- `openteam dashboard <team>` 启动实时仪表盘。
+- 默认 3 秒刷新团队状态、agent 状态与消息流。
+
+## 运行时数据
+
+### `.runtime.json`
+
+- 团队级运行态：`host`、`port`、`pid`、`projectDir`、`started`。
+- monitor 期间附带 `monitor` 字段记录复用器信息。
+
+### `.active-sessions.json`
 
 ```json
 {
-  "name": "team1",
-  "leader": "pm",
-  "agents": ["pm", "architect", "developer", "qa"]
-}
-```
-
-### .active-sessions.json
-
-```json
-{
-  "pm": [
-    { "sessionId": "ses_xxx", "cwd": "/path/to/project" }
-  ],
+  "pm": [{ "sessionId": "ses_xxx", "cwd": "/repo" }],
   "developer": [
-    { "sessionId": "ses_yyy", "cwd": "/path/to/project-a" },
-    { "sessionId": "ses_zzz", "cwd": "/path/to/project-b", "alias": "feature-x" }
+    { "sessionId": "ses_yyy", "cwd": "/repo-a" },
+    { "sessionId": "ses_zzz", "cwd": "/repo-b", "alias": "feature-x" }
   ]
 }
 ```
 
-## CLI 使用
+- 兼容旧格式 `"agent": "sessionId"`。
 
-### 基本命令
+## 常见边界与约束
 
-```bash
-# 启动团队 serve
-openteam start <team>         # 前台启动，进入 leader 会话
-openteam start <team> -d      # 后台启动
-
-# 附加到会话
-openteam attach <team>                   # 附加到 leader
-openteam attach <team> <agent>           # 附加到指定 agent
-openteam attach <team> <agent> --watch   # 监视模式
-openteam attach <team> <agent> --cwd /path  # 附加到特定目录的实例
-
-# 监控所有 agent（2x2 分屏）
-openteam monitor <team>       # 自动检测 zellij/tmux
-openteam monitor <team> --zellij
-openteam monitor <team> --tmux
-
-# 管理
-openteam list                 # 列出所有团队
-openteam status <team>        # 查看团队状态
-openteam stop <team>          # 停止团队
-```
-
-### Monitor 机制
-
-`openteam monitor` 创建 2x2 分屏布局：
-
-- 每 4 个 agent 一组，放在一个窗口（tmux）/ tab（zellij）
-- 超过 4 个时自动创建多个窗口/tab
-- 少于 4 个时，用最后一个 agent 填充剩余 pane
-- 每个 pane 运行 `attach --watch` 监视对应 agent
-
-**动态 pane 创建**：
-
-当通过 `msg` 唤醒离线 agent 时：
-- 自动在 monitor 中添加新 pane
-- 每 4 个 pane 一个 tab，超过时创建新 tab
-- 新 pane 使用 `--cwd` 参数指向正确的工作目录
-
-监视模式工作流程：
-
-1. 检查 `.active-sessions.json` 中是否有该 agent 的会话
-2. 有 → 自动 attach 到会话
-3. 无 → 显示"等待会话..."，每 2 秒检查一次
-4. 会话结束或被 free → 清屏，回到等待状态
-
-### free 断开机制
-
-当 leader 执行 `command('free', who)` 时：
-
-1. 从 `.active-sessions.json` 中移除该实例记录
-2. watch 模式检测到变化，终止 attach 进程
-3. 清屏，回到等待状态
-4. 会话历史保留，不删除
-
-## 与 openmemory 配合
-
-openteam 专注团队协作，记忆系统由 openmemory 插件独立提供。两个插件可同时加载，互不干扰：
-
-- openteam 的 `systemTransform` 注入团队上下文 + 协作规则（检测 `<collaboration-rules>` 防重复）
-- openmemory 的 `systemTransform` 注入记忆内容（检测 `<memory>` 防重复）
-
-启动时通过环境变量 `OPENMEMORY=1` 启用 openmemory 插件。
-
-## 安装配置
-
-### 1. 安装插件
-
-```bash
-npm install -g openteam
-```
-
-### 2. 配置 OpenCode
-
-在 `~/.opencode/opencode.json` 中添加：
-
-```json
-{
-  "plugin": ["openteam"]
-}
-```
-
-### 3. 创建团队
-
-创建 `~/.opencode/agents/<team>/team.json` 和各 agent 的 `.md` 提示词文件。
+- 插件只在 `OPENTEAM_TEAM` 存在时加载。
+- `messagesTransform` 不会全量重写历史消息，只处理最近匹配消息。
+- `stop` 会清空 active sessions 映射（本地状态重置）。
+- monitor 复用器缺失时会直接报错退出。

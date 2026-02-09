@@ -1,96 +1,75 @@
 # OpenTeam 源代码树分析
 
-> **注意**：记忆系统已拆分到独立插件 [openmemory](../../openmemory)。
+> OpenTeam 仅负责团队协作与会话编排。
 
 ## 项目结构概览
 
-```
+```text
 openteam/
-├── bin/                          # CLI 入口
-│   └── openteam.js               # ★ CLI 主入口
+├── bin/
+│   └── openteam.js               # CLI 主入口
 │
-├── src/                          # 源代码
-│   ├── index.js                  # ★ 库入口，导出 plugin tools/hooks
-│   ├── constants.js              # 常量定义
+├── src/
+│   ├── index.js                  # 插件入口（按 OPENTEAM_TEAM 条件加载）
+│   ├── constants.js              # 路径与默认端口常量
 │   │
-│   ├── plugin/                   # OpenCode 插件系统
-│   │   ├── tools.js              # 2 个工具：msg, command
-│   │   └── hooks.js              # messagesTransform + systemTransform
+│   ├── plugin/
+│   │   ├── hooks.js              # messages/system transform
+│   │   └── tools.js              # msg / command
 │   │
-│   ├── team/                     # 团队管理
-│   │   ├── config.js             # 团队配置加载
-│   │   └── serve.js              # 团队服务、多实例管理
+│   ├── team/
+│   │   ├── config.js             # team.json 读取与校验
+│   │   └── serve.js              # runtime/session/monitor 管理
 │   │
-│   └── utils/                    # 工具函数
-│       ├── api.js                # HTTP API 工具
-│       └── logger.js             # 日志系统
+│   ├── dashboard/
+│   │   ├── index.js              # 仪表盘启动与刷新调度
+│   │   ├── data.js               # 状态数据采集
+│   │   └── ui.js                 # 终端 UI 渲染
+│   │
+│   └── utils/
+│       ├── api.js                # OpenCode Serve API 封装
+│       ├── agent.js              # 当前 agent 身份识别
+│       ├── logger.js             # 日志
+│       └── settings.js           # 全局设置
 │
-├── docs/                         # 文档
-│   ├── DESIGN.md                 # 设计文档（中文）
-│   ├── examples/                 # 配置示例
-│   └── plans/                    # 设计规划
+├── docs/
+│   ├── DESIGN.md
+│   └── plans/
 │
-├── package.json                  # 项目配置
-├── package-lock.json             # 依赖锁定
-└── README.md                     # 项目说明
+├── package.json
+└── README.md
 ```
 
-## 关键文件说明
+## 关键模块
 
-### 入口点
+### CLI 入口
 
-| 入口 | 文件 | 用途 |
-|------|------|------|
-| CLI | `bin/openteam.js` | 命令行工具入口 |
-| Library | `src/index.js` | 作为 OpenCode 插件导入 |
+- `bin/openteam.js`: 实现 `start/attach/monitor/list/status/stop/dashboard` 命令。
 
-### 核心模块
+### 插件层
 
-#### plugin/ - 插件核心
+- `src/plugin/hooks.js`: 注入团队上下文与协作规则，为用户消息打 `[from boss]` 标签。
+- `src/plugin/tools.js`: 暴露 `msg` 与 `command`，包含 leader 权限与多实例控制逻辑。
 
-| 文件 | 职责 |
-|------|------|
-| `tools.js` | 定义 2 个工具：msg（异步消息）、command（团队管理） |
-| `hooks.js` | messagesTransform（添加 [from boss]）+ systemTransform（注入团队上下文和协作规则） |
+### 运行时层
 
-#### team/ - 团队管理
+- `src/team/serve.js`: 维护 `.runtime.json` 与 `.active-sessions.json`，处理 monitor 信息。
+- `src/utils/agent.js`: 通过会话最后消息的 `info.agent` 推断当前 agent 身份。
 
-| 文件 | 职责 |
-|------|------|
-| `config.js` | 加载团队配置 (team.json)，校验 leader 在 agents 列表中 |
-| `serve.js` | 团队服务管理，多实例支持，agent 间通信 |
+### 可视化层
 
-### 数据流
-
-```
-用户 CLI 命令
-     │
-     ▼
-bin/openteam.js (Commander.js 解析)
-     │
-     ▼
-src/team/serve.js (启动/停止/监控团队)
-     │
-     ├─▶ src/team/config.js (加载配置)
-     │
-     └─▶ OpenCode Session
-           │
-           ▼
-     src/index.js (插件入口)
-           │
-           ├─▶ src/plugin/tools.js (注册 msg/command)
-           │
-           └─▶ src/plugin/hooks.js (注入团队上下文)
-```
+- `src/dashboard/`: 提供实时状态仪表盘，默认 3 秒刷新。
 
 ## 运行时数据
 
-运行时数据存储在 `~/.opencode/agents/<team>/`:
+运行时数据位于 `~/.opencode/agents/<team>/`：
 
+```text
+team.json
+<agent>.md
+.runtime.json
+.active-sessions.json
 ```
-~/.opencode/agents/<team>/
-├── team.json                 # 团队配置
-├── <agent>.md                # agent 提示词
-├── .runtime.json             # 服务运行状态
-└── .active-sessions.json     # 活跃会话映射
-```
+
+- `.runtime.json`: 团队 serve 运行信息，monitor 模式下包含 `monitor` 字段。
+- `.active-sessions.json`: 多实例会话映射，结构为 `agent -> [{ sessionId, cwd, alias? }]`。
