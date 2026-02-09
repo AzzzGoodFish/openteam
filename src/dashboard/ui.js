@@ -246,10 +246,13 @@ export function updateMessageStream(listBox, messages) {
 
   const items = messages.map((msg) => {
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
-    const arrow = `${msg.from} → ${msg.to}`;
+    const fromTag = msg.from === 'boss'
+      ? '{black-fg}{yellow-bg} [from boss] {/}'
+      : `{black-fg}{green-bg} [from ${msg.from}] {/}`;
+    const toTag = `{cyan-fg}→ ${msg.to}{/cyan-fg}`;
     const content = msg.content.replace(/\n/g, ' ').slice(0, 80);
-    
-    return `{gray-fg}${time}{/gray-fg} {cyan-fg}${arrow.padEnd(25)}{/cyan-fg} ${content}`;
+
+    return `{gray-fg}${time}{/gray-fg} ${fromTag} ${toTag} ${content}`;
   });
 
   listBox.setItems(items);
