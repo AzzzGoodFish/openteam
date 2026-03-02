@@ -2,11 +2,6 @@
 
 面向 OpenCode 的 Agent 团队协作插件，负责多 Agent 协作、会话编排和多实例管理。
 
-## 定位
-
-- OpenTeam 只负责团队协作能力：`msg` / `command`、CLI 编排、监控与状态管理。
-- 本仓库不再包含 memory 实现；如需记忆能力，请使用独立插件 `openmemory`。
-
 ## 核心能力
 
 - Leader-成员协作模型，支持异步消息通信。
@@ -57,6 +52,57 @@ npm install -g openteam
 
 ```bash
 openteam start myteam
+```
+
+## 示例：Dev Team
+
+`examples/dev-team/` 提供了一个完整的四角色开发团队配置，开箱即用。
+
+### 角色
+
+| Agent | 角色 | 职责 |
+|-------|------|------|
+| **pm**（leader） | 产品经理 | 澄清需求、编写 PRD、协调团队 |
+| **architect** | 架构师 | 阅读代码库、设计实现方案、架构评审 |
+| **developer** | 开发者 | 按方案实现代码、编写单元测试 |
+| **qa** | 测试工程师 | 设计测试计划、执行验收测试、提交 Bug |
+
+### 协作流程
+
+```
+用户需求 → PM 澄清需求 & 编写 PRD
+                ↓                        ↓
+          Architect 设计              QA 设计测试计划
+          实现方案                    （并行）
+                ↓
+          Developer 实现 + 单元测试
+                ↓
+          QA 执行验收测试
+                ↓
+          PM 向用户汇报结果
+```
+
+### 内置 Skills
+
+- **PM**: `requirement-clarification`、`prd-generation`、`system-discovery`
+- **Architect**: `codebase-mapping`、`implementation-planning`、`architecture-review`
+- **QA**: `test-plan-design`、`acceptance-testing`、`bug-reporting`
+
+### 部署
+
+```bash
+# 复制团队配置
+mkdir -p ~/.opencode/agents/dev-team
+cp examples/dev-team/team.json ~/.opencode/agents/dev-team/
+
+# 复制角色提示词
+cp examples/dev-team/{pm,architect,developer,qa}.md ~/.opencode/agents/
+
+# 安装 skills
+cp -r examples/dev-team/skills/* ~/.opencode/skills/
+
+# 启动
+openteam start dev-team
 ```
 
 ## CLI 命令

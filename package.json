@@ -7,6 +7,12 @@
   "bin": {
     "openteam": "./bin/openteam.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "examples/",
+    "README.md"
+  ],
   "scripts": {
     "test": "echo \"No tests yet\""
   },
@@ -14,11 +20,14 @@
     "opencode",
     "agent",
     "team",
-    "collaboration",
     "collaboration"
   ],
-  "author": "",
+  "author": "goodfish",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opencode-dev/openteam.git"
+  },
   "dependencies": {
     "@opencode-ai/plugin": "^1.1.35",
     "blessed": "^0.1.81",
