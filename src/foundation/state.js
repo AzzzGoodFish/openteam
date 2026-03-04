@@ -62,6 +62,29 @@ export function clearRuntime(teamName) {
   }
 }
 
+/** @deprecated daemon 架构下由 daemon 管理，Phase 4 随 monitor.js 一起删除 */
+export function setMonitorInfo(teamName, monitorInfo) {
+  const runtime = getRuntime(teamName);
+  if (!runtime) return false;
+  runtime.monitor = monitorInfo;
+  saveRuntime(teamName, runtime);
+  return true;
+}
+
+/** @deprecated */
+export function getMonitorInfo(teamName) {
+  const runtime = getRuntime(teamName);
+  return runtime?.monitor || null;
+}
+
+/** @deprecated */
+export function clearMonitorInfo(teamName) {
+  const runtime = getRuntime(teamName);
+  if (!runtime) return;
+  delete runtime.monitor;
+  saveRuntime(teamName, runtime);
+}
+
 /**
  * Check if serve is running for a team
  * 兼容新格式（serve.pid）和旧格式（pid）
@@ -109,10 +132,13 @@ export function findActiveServeUrl() {
     if (fs.existsSync(runtimePath)) {
       try {
         const runtime = JSON.parse(fs.readFileSync(runtimePath, 'utf8'));
-        if (runtime.pid) {
+        const checkPid = runtime.daemon?.pid || runtime.pid;
+        const host = runtime.serve?.host || runtime.host;
+        const port = runtime.serve?.port || runtime.port;
+        if (checkPid && host && port) {
           try {
-            process.kill(runtime.pid, 0);
-            return `http://${runtime.host}:${runtime.port}`;
+            process.kill(checkPid, 0);
+            return `http://${host}:${port}`;
           } catch {
             // Process not running
           }
