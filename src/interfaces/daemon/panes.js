@@ -3,6 +3,7 @@
  * 创建 agent pane、健康检查、dead pane respawn
  */
 
+import { execSync } from 'child_process';
 import {
   addAgentPane,
   listPanes,
@@ -22,6 +23,7 @@ const log = createLogger('daemon:panes');
  * @param {Map<string, string>} sessionMap - agentName → sessionId
  */
 export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionMap) {
+  let first = true;
   for (const agent of agents) {
     const sessionId = sessionMap.get(agent);
     if (!sessionId) {
@@ -29,6 +31,24 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
       continue;
     }
     const cmd = buildAttachCmd(serveUrl, sessionId);
+
+    // 第一个 agent 开新 window，与 daemon pane 0 隔离
+    if (first && mux === 'tmux') {
+      try {
+        const env = { ...process.env };
+        delete env.TMUX;
+        delete env.TMUX_PANE;
+        execSync(`tmux new-window -t "${sessionName}" -n "${agent}" "${cmd}"`, { stdio: 'ignore', env });
+        log.info(`pane created for ${agent} (new window)`);
+        first = false;
+        continue;
+      } catch {
+        log.error(`failed to create window for ${agent}`);
+        continue;
+      }
+    }
+    first = false;
+
     const result = addAgentPane(mux, sessionName, cmd, agent);
     if (result) {
       log.info(`pane created for ${agent}`);
