@@ -4,13 +4,17 @@
  * OpenTeam CLI — 纯路由入口
  */
 
+import { createRequire } from 'module';
 import { program } from 'commander';
 import {
   cmdStart, cmdAttach, cmdList, cmdStop,
   cmdStatus, cmdMonitor, cmdDashboard,
 } from '../src/interfaces/cli.js';
 
-program.name('openteam').description('Team management for OpenCode').version('0.1.2');
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
+
+program.name('openteam').description('Team management for OpenCode').version(version);
 
 program
   .command('start [team]')
