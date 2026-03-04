@@ -18,22 +18,22 @@ program.name('openteam').description('Team management for OpenCode').version(ver
 
 program
   .command('start [team]')
-  .description('启动团队 serve')
+  .description('启动团队（创建 tmux/zellij session）')
   .option('-d, --detach', '后台运行')
   .option('--dir <directory>', '项目目录')
+  .option('--tmux', '强制使用 tmux')
+  .option('--zellij', '强制使用 zellij')
   .action(cmdStart);
 
 program
   .command('attach [team] [agent]')
   .description('附加到 agent 会话')
-  .option('-w, --watch', '监视模式，自动跟随会话状态')
-  .option('--cwd <directory>', '指定实例的工作目录')
   .action(cmdAttach);
 
 program
   .command('list')
   .alias('ls')
-  .description('列出运行中的团队')
+  .description('列出所有团队')
   .action(cmdList);
 
 program
@@ -48,15 +48,27 @@ program
 
 program
   .command('monitor [team]')
-  .description('分屏监控所有 agent')
+  .description('启动团队（start 的别名）')
+  .option('-d, --detach', '后台运行')
+  .option('--dir <directory>', '项目目录')
   .option('--tmux', '强制使用 tmux')
   .option('--zellij', '强制使用 zellij')
-  .option('--dir <directory>', '项目目录')
   .action(cmdMonitor);
 
 program
   .command('dashboard <team>')
-  .description('实时显示团队状态仪表盘')
+  .description('独立显示团队状态仪表盘')
   .action(cmdDashboard);
+
+// 内部命令（不在帮助中显示）
+program
+  .command('daemon <team>', { hidden: true })
+  .option('--port <port>', 'serve 端口', parseInt)
+  .option('--dir <directory>', '项目目录')
+  .option('--mux <type>', '复用器类型', 'tmux')
+  .action(async (teamName, options) => {
+    const { runDaemon } = await import('../src/interfaces/daemon/index.js');
+    await runDaemon(teamName, options.dir || process.cwd(), options);
+  });
 
 program.parse();
