@@ -15,6 +15,7 @@ function getRuntimePath(teamName) {
 
 /**
  * Load runtime configuration
+ * 兼容新格式（daemon.pid）和旧格式（pid）
  */
 export function getRuntime(teamName) {
   const runtimePath = getRuntimePath(teamName);
@@ -23,13 +24,13 @@ export function getRuntime(teamName) {
   try {
     const runtime = JSON.parse(fs.readFileSync(runtimePath, 'utf8'));
 
-    // Check if process is still running
-    if (runtime.pid) {
+    // 新格式：检查 daemon PID；旧格式：检查 pid
+    const checkPid = runtime.daemon?.pid || runtime.pid;
+    if (checkPid) {
       try {
-        process.kill(runtime.pid, 0);
+        process.kill(checkPid, 0);
         return runtime;
       } catch {
-        // Process not running, clean up
         fs.unlinkSync(runtimePath);
         return null;
       }
@@ -62,48 +63,33 @@ export function clearRuntime(teamName) {
 }
 
 /**
- * Set monitor info in runtime
- */
-export function setMonitorInfo(teamName, monitorInfo) {
-  const runtime = getRuntime(teamName);
-  if (!runtime) return false;
-  runtime.monitor = monitorInfo;
-  saveRuntime(teamName, runtime);
-  return true;
-}
-
-/**
- * Get monitor info from runtime
- */
-export function getMonitorInfo(teamName) {
-  const runtime = getRuntime(teamName);
-  return runtime?.monitor || null;
-}
-
-/**
- * Clear monitor info from runtime
- */
-export function clearMonitorInfo(teamName) {
-  const runtime = getRuntime(teamName);
-  if (!runtime) return;
-  delete runtime.monitor;
-  saveRuntime(teamName, runtime);
-}
-
-/**
  * Check if serve is running for a team
+ * 兼容新格式（serve.pid）和旧格式（pid）
  */
 export function isServeRunning(teamName) {
-  return getRuntime(teamName) !== null;
+  const runtime = getRuntime(teamName);
+  if (!runtime) return false;
+  const servePid = runtime.serve?.pid || runtime.pid;
+  if (!servePid) return false;
+  try {
+    process.kill(servePid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Get serve URL for a team
+ * 兼容新格式（serve.host/port）和旧格式（host/port）
  */
 export function getServeUrl(teamName) {
   const runtime = getRuntime(teamName);
   if (!runtime) return null;
-  return `http://${runtime.host}:${runtime.port}`;
+  const host = runtime.serve?.host || runtime.host;
+  const port = runtime.serve?.port || runtime.port;
+  if (!host || !port) return null;
+  return `http://${host}:${port}`;
 }
 
 /**
