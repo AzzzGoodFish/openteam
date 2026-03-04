@@ -1,11 +1,10 @@
 /**
- * Serve management utilities
+ * 运行时状态持久化（serve 进程信息 + agent session 映射）
  */
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS, FILES, DEFAULTS } from '../constants.js';
-import { getTeamDir } from './config.js';
+import { PATHS, FILES, DEFAULTS, getTeamDir } from './constants.js';
 
 /**
  * Get runtime file path for a team

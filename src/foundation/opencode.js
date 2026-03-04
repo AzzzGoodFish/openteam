@@ -1,5 +1,5 @@
 /**
- * OpenCode Serve API wrapper
+ * OpenCode Serve HTTP API 封装
  *
  * 所有 fetch 调用统一带 timeout（默认 10s），防止挂起。
  */
@@ -37,10 +37,10 @@ export async function fetchSession(serveUrl, sessionID) {
 /**
  * Fetch messages for a session
  */
-export async function fetchMessages(serveUrl, sessionID) {
+export async function fetchMessages(serveUrl, sessionID, timeoutMs = DEFAULT_TIMEOUT) {
   const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}/message`, {
     headers: { Accept: 'application/json' },
-  });
+  }, timeoutMs);
   if (!res.ok) return null;
   return res.json();
 }
@@ -168,13 +168,6 @@ export async function getProviders(serveUrl) {
 
 /**
  * Find a small/fast model from available providers
- * Matches opencode's getSmallModel logic:
- * - claude-haiku-4-5, claude-3-5-haiku
- * - gemini-2.5-flash, gemini-flash
- * - gpt-4o-mini, gpt-5-nano
- *
- * @param {string} serveUrl - OpenCode serve URL
- * @param {string} preferredProviderID - Preferred provider to search first (like opencode)
  */
 // provider.models 可能是数组或对象（key-value map），统一转为数组
 function getModelList(models) {

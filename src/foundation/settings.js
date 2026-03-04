@@ -1,20 +1,10 @@
 /**
- * Global settings for openteam
- *
- * 配置文件位置: ~/.openteam/settings.json
- *
- * 示例:
- * {
- *   "log": {
- *     "enabled": true,
- *     "level": "info"
- *   }
- * }
+ * 全局设置管理（~/.openteam/settings.json）
  */
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS } from '../constants.js';
+import { PATHS } from './constants.js';
 
 const DEFAULT_SETTINGS = {
   log: {

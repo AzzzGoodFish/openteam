@@ -21,3 +21,7 @@ export const DEFAULTS = {
   PORT_RANGE_END: 4200,
   HOST: '127.0.0.1',
 };
+
+export function getTeamDir(teamName) {
+  return path.join(PATHS.AGENTS_DIR, teamName);
+}

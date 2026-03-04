@@ -28,23 +28,69 @@ openteam <command>
 
 ## Architecture
 
+三层架构，依赖单向向下：`Interfaces → Capabilities → Foundation`
+
 ```
-bin/openteam.js          # CLI 入口 - 处理 start/attach/monitor/list/status/stop
+bin/openteam.js                     # CLI 入口 — 纯 Commander 路由（~55 行）
+
 src/
-├── index.js             # 插件入口 - 导出 hooks + tools
-├── constants.js         # 配置常量
-├── plugin/
-│   ├── hooks.js         # 两个 hook：
-│   │                    #   - messagesTransform: 给无来源消息添加 [from boss]
-│   │                    #   - systemTransform: 注入团队上下文 + 协作规则
-│   └── tools.js         # 2 个工具（msg/command）
-├── team/
-│   ├── config.js        # 团队/agent 配置加载 + validateTeamConfig 校验
-│   └── serve.js         # 运行时管理、多实例跟踪
-└── utils/
-    ├── api.js           # OpenCode Serve HTTP API 封装
-    └── logger.js        # 日志系统
+├── index.js                        # Plugin 入口 — 导出 hooks + tools
+
+├── interfaces/                     ── 接口层：谁在调用 ──
+│   ├── cli.js                      CLI 命令实现（start/attach/list/stop/status/monitor/dashboard）
+│   ├── dashboard/                  Dashboard TUI
+│   │   ├── index.js                刷新循环编排
+│   │   ├── ui.js                   blessed UI 组件
+│   │   └── data.js                 数据获取
+│   └── plugin/                     Plugin 集成（Agent 运行时）
+│       ├── hooks.js                消息标记 + 系统注入 hook（薄委托）
+│       └── tools.js                msg + command 工具定义（权限校验 + 路由）
+
+├── capabilities/                   ── 能力层：做什么 ──
+│   ├── lifecycle.js                Agent 身份识别、会话创建/查找/回收/释放/重定向
+│   ├── messaging.js                通信（消息投递/广播）+ 团队上下文注入
+│   └── monitor.js                  终端监控编排
+
+├── foundation/                     ── 基础层：基础设施 ──
+│   ├── constants.js                路径、文件名、默认值常量
+│   ├── config.js                   团队配置读取与校验
+│   ├── state.js                    运行时状态持久化（serve 进程 + session 映射）
+│   ├── opencode.js                 OpenCode Serve HTTP API 封装
+│   ├── terminal.js                 终端复用器（tmux/zellij）抽象
+│   ├── logger.js                   日志系统
+│   └── settings.js                 全局设置
 ```
+
+### 依赖规则
+
+- Foundation 模块之间互不依赖（constants 除外）
+- Capabilities 只依赖 Foundation + 同层单向依赖（messaging → lifecycle、messaging → monitor）
+- Interfaces 依赖 Capabilities + Foundation
+- 禁止反向依赖
+
+### 架构整洁原则
+
+以下原则是代码变更的硬性约束，适用于所有新增和修改的代码。
+
+**依赖方向**
+- 只能向下依赖：Interfaces → Capabilities → Foundation
+- Foundation 模块之间互不依赖（constants 除外）
+- Capabilities 内允许单向依赖，禁止循环
+- 禁止任何反向依赖（如 Foundation 调用 Capabilities）
+
+**代码归属**
+- 业务逻辑属于 Capabilities，不允许泄漏到 Interfaces 或 Foundation
+- Interfaces 只做：参数校验、权限检查、格式化输出、调用编排
+- Foundation 只做：数据读写、外部 API 调用、基础工具，不含业务判断
+
+**复用优先**
+- 新增功能前先检查 Capabilities 层是否已有可复用的方法
+- 同一逻辑禁止在多个模块中重复实现
+- 所有对 OpenCode Serve 的 HTTP 调用必须走 `foundation/opencode.js`，禁止 raw fetch
+
+**模块边界**
+- 每个模块的导出方法即为其完整 API，内部实现不暴露
+- 新增文件必须放入正确的层级目录，不允许在 `src/` 根目录创建文件（`index.js` 除外）
 
 ### Key Patterns
 
@@ -77,4 +123,4 @@ src/
 - `msg` 工具会自动唤醒离线 agent 并添加 monitor pane
 - `command` 仅 leader 可用，支持 actions：status/free/redirect
 - 启动时会校验 leader 必须在 agents 列表中
-- 消息轮询间隔 500ms（在 `src/utils/api.js` 中）
+- 消息轮询间隔 500ms（在 `src/foundation/opencode.js` 中）

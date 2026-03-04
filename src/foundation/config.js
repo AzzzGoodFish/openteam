@@ -1,17 +1,12 @@
 /**
- * Team and agent configuration management
+ * 团队配置读取与校验
  */
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS, FILES } from '../constants.js';
+import { PATHS, FILES, getTeamDir } from './constants.js';
 
-/**
- * Get team directory path
- */
-export function getTeamDir(teamName) {
-  return path.join(PATHS.AGENTS_DIR, teamName);
-}
+export { getTeamDir };
 
 /**
  * Load team configuration

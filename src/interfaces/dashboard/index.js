@@ -1,10 +1,10 @@
 /**
  * OpenTeam Dashboard
- * 
+ *
  * 实时显示团队状态、Agent 状态和消息流
  */
 
-import { getServeUrl, isServeRunning } from '../team/serve.js';
+import { getServeUrl, isServeRunning } from '../../foundation/state.js';
 import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateMessageStream } from './ui.js';
 import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream } from './data.js';
 
@@ -22,13 +22,13 @@ export async function dashboard(teamName) {
   }
 
   const serveUrl = getServeUrl(teamName);
-  
+
   // 创建 UI
   const ui = createDashboard(teamName);
-  
+
   // 初始渲染
   await refreshDashboard(ui, teamName, serveUrl);
-  
+
   // 定期刷新
   const intervalId = setInterval(async () => {
     await refreshDashboard(ui, teamName, serveUrl);
@@ -53,7 +53,7 @@ export async function dashboard(teamName) {
 async function refreshDashboard(ui, teamName, serveUrl) {
   try {
     const refreshTime = new Date().toLocaleString('zh-CN', { hour12: false });
-    
+
     // 并行获取数据
     const [teamStatus, agentStatuses, messages] = await Promise.all([
       fetchTeamStatus(teamName),

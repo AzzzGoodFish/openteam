@@ -220,7 +220,7 @@ export function updateAgentStatus(box, agentStatuses) {
     const name = agent.name.padEnd(15);
     const sessionId = agent.sessionId.slice(0, 12).padEnd(12);
     const cwd = agent.cwd.length > 40 ? '...' + agent.cwd.slice(-37) : agent.cwd;
-    
+
     return `${status} ${name} ${sessionId} ${cwd}`;
   });
 

@@ -5,8 +5,8 @@
  */
 
 import { tool } from '@opencode-ai/plugin';
-import { createHooks } from './plugin/hooks.js';
-import { createToolDefs } from './plugin/tools.js';
+import { createHooks } from './interfaces/plugin/hooks.js';
+import { createToolDefs } from './interfaces/plugin/tools.js';
 
 const OpenTeamPlugin = async (ctx) => {
   // Only load when started via openteam (OPENTEAM_TEAM env var is set)

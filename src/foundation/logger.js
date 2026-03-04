@@ -1,5 +1,5 @@
 /**
- * Logger utility for openteam
+ * 日志系统
  *
  * 配置优先级: 环境变量 > settings.json > 默认值
  *
@@ -15,7 +15,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { PATHS } from '../constants.js';
+import { PATHS } from './constants.js';
 
 const LOG_LEVELS = {
   debug: 0,
