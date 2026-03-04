@@ -1,20 +1,21 @@
 /**
  * OpenTeam Dashboard
  *
- * 实时显示团队状态、Agent 状态和消息流
+ * 支持两种模式：
+ * - 独立运行：`dashboard(teamName)` — 自管理生命周期
+ * - 嵌入 daemon：`createEmbeddedDashboard(teamName, serveUrl)` — 由 daemon 管理生命周期
  */
 
 import { getServeUrl, isServeRunning } from '../../foundation/state.js';
 import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateMessageStream } from './ui.js';
 import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream } from './data.js';
 
-const REFRESH_INTERVAL = 3000; // 3 秒
+const REFRESH_INTERVAL = 3000;
 
 /**
- * 启动 Dashboard
+ * 独立模式：启动 Dashboard（原有行为不变）
  */
 export async function dashboard(teamName) {
-  // 检查团队是否运行
   if (!isServeRunning(teamName)) {
     console.error(`\x1b[31m错误:\x1b[0m 团队 ${teamName} 未运行`);
     console.log(`请先运行: openteam start ${teamName}`);
@@ -22,19 +23,14 @@ export async function dashboard(teamName) {
   }
 
   const serveUrl = getServeUrl(teamName);
-
-  // 创建 UI
   const ui = createDashboard(teamName);
 
-  // 初始渲染
   await refreshDashboard(ui, teamName, serveUrl);
 
-  // 定期刷新
   const intervalId = setInterval(async () => {
     await refreshDashboard(ui, teamName, serveUrl);
   }, REFRESH_INTERVAL);
 
-  // 清理资源
   process.on('exit', () => {
     clearInterval(intervalId);
     ui.screen.destroy();
@@ -48,20 +44,56 @@ export async function dashboard(teamName) {
 }
 
 /**
+ * 嵌入模式：创建 dashboard 并返回控制句柄
+ * daemon 负责调用 start/stop，dashboard 不自行退出
+ *
+ * @returns {{ start: () => void, stop: () => void, refresh: () => Promise<void> }}
+ */
+export function createEmbeddedDashboard(teamName, serveUrl) {
+  const ui = createDashboard(teamName);
+  let intervalId = null;
+
+  // 嵌入模式下禁用 q 退出（daemon 管生命周期）
+  ui.screen.unkey(['q', 'C-c']);
+  ui.screen.key(['q'], () => {
+    updateHeader(ui.header, teamName, '使用 openteam stop 停止团队');
+    ui.screen.render();
+  });
+
+  return {
+    start() {
+      refreshDashboard(ui, teamName, serveUrl);
+      intervalId = setInterval(async () => {
+        try {
+          await refreshDashboard(ui, teamName, serveUrl);
+        } catch {
+          // 渲染失败不影响 daemon 核心功能
+        }
+      }, REFRESH_INTERVAL);
+    },
+    stop() {
+      if (intervalId) clearInterval(intervalId);
+      try { ui.screen.destroy(); } catch { /* ignore */ }
+    },
+    async refresh() {
+      await refreshDashboard(ui, teamName, serveUrl);
+    },
+  };
+}
+
+/**
  * 刷新 Dashboard 数据并更新 UI
  */
-async function refreshDashboard(ui, teamName, serveUrl) {
+export async function refreshDashboard(ui, teamName, serveUrl) {
   try {
     const refreshTime = new Date().toLocaleString('zh-CN', { hour12: false });
 
-    // 并行获取数据
     const [teamStatus, agentStatuses, messages] = await Promise.all([
       fetchTeamStatus(teamName),
       fetchAgentStatus(teamName, serveUrl),
       fetchMessageStream(teamName, serveUrl, 20),
     ]);
 
-    // 更新 UI
     updateHeader(ui.header, teamName, refreshTime);
     updateTeamStatus(ui.teamStatus, teamStatus);
     updateAgentStatus(ui.agentStatus, agentStatuses);
@@ -69,7 +101,6 @@ async function refreshDashboard(ui, teamName, serveUrl) {
 
     ui.screen.render();
   } catch (err) {
-    // 显示错误但不退出
     updateHeader(ui.header, teamName, `Error: ${err.message}`);
     ui.screen.render();
   }
