@@ -57,6 +57,19 @@ export async function listAllSessions(serveUrl) {
 }
 
 /**
+ * 检查 serve 是否可达（健康检查）
+ * @returns {Promise<boolean>}
+ */
+export async function checkHealth(serveUrl) {
+  try {
+    await listAllSessions(serveUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Create a new session
  */
 export async function createSession(serveUrl, directory, title, metadata = null) {

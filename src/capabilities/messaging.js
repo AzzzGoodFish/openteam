@@ -3,7 +3,6 @@
  */
 
 import { wakeAgent, getCurrentAgent } from './lifecycle.js';
-import { addPaneForAgent } from './monitor.js';
 import { sessionExists, postMessage } from '../foundation/opencode.js';
 import { getAgentInstances } from '../foundation/state.js';
 import { loadTeamConfig } from '../foundation/config.js';
@@ -33,7 +32,6 @@ export async function sendMessage({ from, to, message, teamName, serveUrl }) {
   if (instances.length === 0) {
     const wakeResult = await wakeAgent(teamName, to, defaultCwd, serveUrl);
     if (wakeResult) {
-      addPaneForAgent(teamName, to, defaultCwd);
       instances = [wakeResult];
       wasWoken = true;
       log.info(`[${to}] event=agent_wake`);

@@ -1,0 +1,25 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "openteam",
+      "dependencies": {
+        "@opencode-ai/plugin": "^1.1.35",
+        "blessed": "^0.1.81",
+        "commander": "^12.0.0",
+      },
+    },
+  },
+  "packages": {
+    "@opencode-ai/plugin": ["@opencode-ai/plugin@1.1.35", "", { "dependencies": { "@opencode-ai/sdk": "1.1.35", "zod": "4.1.8" } }, "sha512-mn96oPcPxAjBcRuG/ivtJAOujJeyUPmL+D+/79Fs29MqIkfxJ/x+SVfNf8IXTFfkyt8FzZ3gF+Vuk1z/QjTkPA=="],
+
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.1.35", "", {}, "sha512-1RfjXvc5nguurpGXyKk8aJ4Rb3ix1IZ5V7itPB3SMq7c6OkmbE/5wzN2KUT9zATWj7ZDjmShkxEjvkRsOhodtw=="],
+
+    "blessed": ["blessed@0.1.81", "", { "bin": "bin/tput.js" }, "sha512-LoF5gae+hlmfORcG1M5+5XZi4LBmvlXTzwJWzUlPryN/SJdSflZvROM2TwkT0GMpq7oqT48NRd4GS7BiVBc5OQ=="],
+
+    "commander": ["commander@12.1.0", "", {}, "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="],
+
+    "zod": ["zod@4.1.8", "", {}, "sha512-5R1P+WwQqmmMIEACyzSvo4JXHY5WiAFHRMg+zBZKgKS+Q1viRa0C1hmUKtHltoIFKtIdki3pRxkmpP74jnNYHQ=="],
+  }
+}
