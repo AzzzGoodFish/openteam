@@ -61,8 +61,7 @@ src/
 │   ├── state.js                    运行时状态持久化（daemon + serve + mux 信息）
 │   ├── opencode.js                 OpenCode Serve HTTP API 封装
 │   ├── terminal.js                 终端复用器抽象 + daemon pane 管理
-│   ├── logger.js                   日志系统
-│   └── settings.js                 全局设置
+│   └── logger.js                   日志系统
 ```
 
 ### 依赖规则

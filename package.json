@@ -1,6 +1,6 @@
 {
   "name": "openteam",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Agent-centric team collaboration for OpenCode",
   "type": "module",
   "main": "./src/index.js",
