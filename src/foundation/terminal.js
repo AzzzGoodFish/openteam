@@ -3,7 +3,7 @@
  */
 
 import fs from 'fs';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 
 /**
  * 检测可用的终端复用器
@@ -101,28 +101,66 @@ function getTmuxPaneCount(sessionName, env) {
 }
 
 /**
- * 创建 mux session，首个 pane 运行指定命令
- * 用于 daemon 启动：pane 0 = daemon 进程
+ * 写 zellij layout 文件，返回路径
  */
-export function createSessionWithCmd(mux, sessionName, cmd) {
-  if (mux === 'tmux') {
-    const env = cleanTmuxEnv();
-    execSync(`tmux new-session -d -s "${sessionName}" "${cmd}"`, { stdio: 'ignore', env });
-  } else if (mux === 'zellij') {
-    const layout = `layout {
+function writeZellijLayout(sessionName, cmd) {
+  const layout = `layout {
     tab name="${sessionName}" {
         pane command="bash" name="daemon" {
             args "-c" "${cmd}"
         }
     }
 }`;
-    const layoutPath = `/tmp/openteam-daemon-${sessionName}.kdl`;
-    fs.writeFileSync(layoutPath, layout);
-    execSync(`zellij -n "${layoutPath}" -s "${sessionName}" &`, { stdio: 'ignore' });
-    // 等待 session 创建
-    for (let i = 0; i < 10; i++) {
-      if (hasSession('zellij', sessionName)) break;
-      execSync('sleep 0.5');
+  const layoutPath = `/tmp/openteam-daemon-${sessionName}.kdl`;
+  fs.writeFileSync(layoutPath, layout);
+  return layoutPath;
+}
+
+/**
+ * spawn + detach 启动 zellij session（后台模式）
+ */
+function spawnZellijDetached(sessionName, layoutPath) {
+  const logPath = `/tmp/openteam-${sessionName}.log`;
+  const logFd = fs.openSync(logPath, 'a');
+  const child = spawn('zellij', ['--layout', layoutPath, '-s', sessionName], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  });
+  child.unref();
+  fs.closeSync(logFd);
+  // 等待 session 出现
+  for (let i = 0; i < 10; i++) {
+    if (hasSession('zellij', sessionName)) break;
+    execSync('sleep 0.5');
+  }
+}
+
+/**
+ * 统一启动 mux session — 正确处理 tmux/zellij 的根本差异
+ *
+ * tmux: 先 new-session -d（detached），foreground 时再 attach
+ * zellij: 前台时 execSync + stdio:inherit（一步完成）；后台用 spawn detached
+ *
+ * @param {'tmux'|'zellij'} mux
+ * @param {string} sessionName
+ * @param {string} cmd - 首个 pane 运行的命令
+ * @param {object} options
+ * @param {boolean} options.foreground - true = 阻塞直到用户退出
+ */
+export function startSession(mux, sessionName, cmd, { foreground = false } = {}) {
+  if (mux === 'tmux') {
+    const env = cleanTmuxEnv();
+    execSync(`tmux new-session -d -s "${sessionName}" "${cmd}"`, { stdio: 'ignore', env });
+    if (foreground) {
+      execSync(`tmux attach -t "${sessionName}"`, { stdio: 'inherit', env });
+    }
+  } else if (mux === 'zellij') {
+    const layoutPath = writeZellijLayout(sessionName, cmd);
+    if (foreground) {
+      // zellij 的自然模式：创建 + attach 一步完成
+      execSync(`zellij --layout "${layoutPath}" -s "${sessionName}"`, { stdio: 'inherit' });
+    } else {
+      spawnZellijDetached(sessionName, layoutPath);
     }
   }
 }

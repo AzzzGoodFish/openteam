@@ -14,7 +14,7 @@ import {
   loadActiveSessions,
 } from '../foundation/state.js';
 import { sessionExists, fetchSession } from '../foundation/opencode.js';
-import { detectMultiplexer, hasSession, attachSession, createSessionWithCmd, killSession } from '../foundation/terminal.js';
+import { detectMultiplexer, hasSession, attachSession, startSession, killSession } from '../foundation/terminal.js';
 import { ensureAgent } from '../capabilities/lifecycle.js';
 
 // ── 输出辅助 ──
@@ -87,16 +87,13 @@ export async function cmdStart(teamName, options) {
   console.log('');
 
   // 创建 mux session，pane 0 运行 daemon
-  createSessionWithCmd(mux, sessionName, daemonCmd);
+  // foreground: 前台模式阻塞直到用户退出；detach: 后台创建后立即返回
+  startSession(mux, sessionName, daemonCmd, { foreground: !options.detach });
 
   if (options.detach) {
     success('团队已在后台启动');
     console.log(`使用 'openteam start ${teamName}' 进入团队`);
-    return;
   }
-
-  // 前台模式：attach 到 session
-  attachSession(mux, sessionName);
 }
 
 /**
