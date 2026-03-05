@@ -76,12 +76,21 @@ export function killSession(sessionName) {
 // ── Daemon 导向的 pane 管理 API ──
 
 /**
- * 清理 TMUX 环境变量，避免嵌套 tmux 问题
+ * 检测当前是否在 tmux/zellij session 内部
  */
-export function cleanTmuxEnv() {
+export function isInsideMux() {
+  return !!(process.env.TMUX || process.env.ZELLIJ);
+}
+
+/**
+ * 清理 mux 环境变量，让子进程能操作目标 session 而非嵌套
+ */
+export function cleanMuxEnv() {
   const env = { ...process.env };
   delete env.TMUX;
   delete env.TMUX_PANE;
+  delete env.ZELLIJ;
+  delete env.ZELLIJ_SESSION_NAME;
   return env;
 }
 
@@ -149,7 +158,7 @@ function spawnZellijDetached(sessionName, layoutPath) {
  */
 export function startSession(mux, sessionName, cmd, { foreground = false } = {}) {
   if (mux === 'tmux') {
-    const env = cleanTmuxEnv();
+    const env = cleanMuxEnv();
     execSync(`tmux new-session -d -s "${sessionName}" "${cmd}"`, { stdio: 'ignore', env });
     if (foreground) {
       execSync(`tmux attach -t "${sessionName}"`, { stdio: 'inherit', env });
@@ -172,7 +181,7 @@ export function startSession(mux, sessionName, cmd, { foreground = false } = {})
 export function addAgentPane(mux, sessionName, cmd, paneName) {
   try {
     if (mux === 'tmux') {
-      const env = cleanTmuxEnv();
+      const env = cleanMuxEnv();
       const paneCount = getTmuxPaneCount(sessionName, env);
       if (paneCount > 0 && paneCount % 4 === 0) {
         execSync(`tmux new-window -t "${sessionName}" -n "${paneName}" "${cmd}"`, { stdio: 'ignore', env });
@@ -198,7 +207,7 @@ export function addAgentPane(mux, sessionName, cmd, paneName) {
 export function listPanes(mux, sessionName) {
   try {
     if (mux === 'tmux') {
-      const env = cleanTmuxEnv();
+      const env = cleanMuxEnv();
       const output = execSync(
         `tmux list-panes -t "${sessionName}" -a -F "#{pane_id}|#{pane_title}|#{pane_dead}|#{pane_current_command}"`,
         { encoding: 'utf8', env }
@@ -229,7 +238,7 @@ export function listPanes(mux, sessionName) {
 export function respawnPane(mux, sessionName, paneId, cmd) {
   try {
     if (mux === 'tmux') {
-      const env = cleanTmuxEnv();
+      const env = cleanMuxEnv();
       execSync(`tmux respawn-pane -t "${paneId}" -k "${cmd}"`, { stdio: 'ignore', env });
       return true;
     } else if (mux === 'zellij') {

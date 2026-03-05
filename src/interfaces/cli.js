@@ -14,7 +14,7 @@ import {
   loadActiveSessions,
 } from '../foundation/state.js';
 import { sessionExists, fetchSession } from '../foundation/opencode.js';
-import { detectMultiplexer, hasSession, attachSession, startSession, killSession } from '../foundation/terminal.js';
+import { detectMultiplexer, hasSession, attachSession, startSession, killSession, isInsideMux } from '../foundation/terminal.js';
 import { ensureAgent } from '../capabilities/lifecycle.js';
 
 // ── 输出辅助 ──
@@ -69,6 +69,11 @@ export async function cmdStart(teamName, options) {
     info(`团队 ${teamName} 已在运行，正在连接...`);
     attachSession(mux, sessionName);
     return;
+  }
+
+  // 前台模式下禁止在 mux 内部嵌套
+  if (!options.detach && isInsideMux()) {
+    error(`当前已在终端复用器中，无法嵌套创建\n请在终端复用器外运行，或使用 --detach 后台启动：\n  openteam start ${teamName} --detach`);
   }
 
   // 构建 daemon 启动命令
