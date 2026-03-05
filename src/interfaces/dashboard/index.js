@@ -84,7 +84,7 @@ export function createEmbeddedDashboard(teamName, serveUrl) {
 /**
  * 刷新 Dashboard 数据并更新 UI
  */
-export async function refreshDashboard(ui, teamName, serveUrl) {
+async function refreshDashboard(ui, teamName, serveUrl) {
   try {
     const refreshTime = new Date().toLocaleString('zh-CN', { hour12: false });
 

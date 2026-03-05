@@ -48,7 +48,7 @@ export async function fetchMessages(serveUrl, sessionID, timeoutMs = DEFAULT_TIM
 /**
  * List all sessions (no directory filter)
  */
-export async function listAllSessions(serveUrl) {
+async function listAllSessions(serveUrl) {
   const res = await fetchWithTimeout(`${serveUrl}/session`, {
     headers: { Accept: 'application/json' },
   });
@@ -165,6 +165,7 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
 }
 
 /**
+ * @reserved 用于未来 agent 自动选模型场景
  * Get available providers and models
  */
 export async function getProviders(serveUrl) {
@@ -180,6 +181,7 @@ export async function getProviders(serveUrl) {
 }
 
 /**
+ * @reserved 用于未来 agent 自动选模型场景
  * Find a small/fast model from available providers
  */
 // provider.models 可能是数组或对象（key-value map），统一转为数组

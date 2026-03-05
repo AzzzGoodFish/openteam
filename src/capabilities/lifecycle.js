@@ -20,7 +20,7 @@ import { listTeams, loadTeamConfig } from '../foundation/config.js';
  * 解析 agent 名称（"team/agent" 或 "agent"）
  * @returns {{ team: string, name: string, full: string } | null}
  */
-export function parseAgentName(agentName, defaultTeam = null) {
+function parseAgentName(agentName, defaultTeam = null) {
   if (!agentName) return null;
 
   if (agentName.includes('/')) {
@@ -138,7 +138,7 @@ export async function ensureAgent(teamName, agentName, serveUrl, projectDir) {
  *   - cwd: 匹配指定目录
  *   - matchAny: 如果 cwd 匹配失败，允许回退到任意单实例
  */
-export async function findAgentSession(teamName, agentName, serveUrl, options = {}) {
+async function findAgentSession(teamName, agentName, serveUrl, options = {}) {
   const { cwd, matchAny = false } = options;
 
   // 按 cwd 查找

@@ -143,7 +143,7 @@ export async function injectTeamContext(sessionID, output) {
 /**
  * 格式化团队成员提示词
  */
-export function formatTeamPrompt(teamConfig, currentAgentName) {
+function formatTeamPrompt(teamConfig, currentAgentName) {
   if (!teamConfig?.agents?.length) return '';
 
   const teamMembers = teamConfig.agents
@@ -156,7 +156,7 @@ export function formatTeamPrompt(teamConfig, currentAgentName) {
 /**
  * 获取协作规则全文
  */
-export function getCollaborationRules() {
+function getCollaborationRules() {
   return `<collaboration-rules>
 ## 团队协作规则
 

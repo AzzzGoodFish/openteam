@@ -6,8 +6,6 @@ import fs from 'fs';
 import path from 'path';
 import { PATHS, FILES, getTeamDir } from './constants.js';
 
-export { getTeamDir };
-
 /**
  * Load team configuration
  */
@@ -25,7 +23,7 @@ export function loadTeamConfig(teamName) {
 /**
  * Get list of agents in a team
  */
-export function getTeamAgents(teamName) {
+function getTeamAgents(teamName) {
   const config = loadTeamConfig(teamName);
   return config?.agents || [];
 }

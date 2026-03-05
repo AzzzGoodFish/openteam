@@ -257,22 +257,3 @@ export function removeInstance(teamName, agentName, { cwd, alias }) {
   saveActiveSessions(teamName, sessions);
 }
 
-/**
- * Clear all instances for an agent
- */
-export function clearAgentInstances(teamName, agentName) {
-  const sessions = loadActiveSessions(teamName);
-  sessions[agentName] = [];
-  saveActiveSessions(teamName, sessions);
-}
-
-// Legacy compatibility
-export function setActiveSession(teamName, agentName, sessionID, cwd = null) {
-  addInstance(teamName, agentName, { sessionId: sessionID, cwd });
-}
-
-export function getActiveSession(teamName, agentName) {
-  const instances = getAgentInstances(teamName, agentName);
-  if (instances.length === 0) return null;
-  return instances[0].sessionId;
-}

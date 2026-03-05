@@ -2,7 +2,7 @@
  * Dashboard data fetching logic
  */
 
-import { getRuntime, loadActiveSessions } from '../../foundation/state.js';
+import { getRuntime, getServeUrl, loadActiveSessions } from '../../foundation/state.js';
 import { loadTeamConfig } from '../../foundation/config.js';
 import { sessionExists, fetchSession, fetchMessages } from '../../foundation/opencode.js';
 
@@ -24,8 +24,8 @@ export async function fetchTeamStatus(teamName) {
 
   return {
     running: true,
-    url: `http://${runtime.host}:${runtime.port}`,
-    pid: runtime.pid,
+    url: getServeUrl(teamName),
+    pid: runtime.serve?.pid || runtime.pid,
     leader,
     projectDir: runtime.projectDir || 'N/A',
     started: runtime.started,

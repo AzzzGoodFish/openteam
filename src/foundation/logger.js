@@ -103,22 +103,3 @@ export function createLogger(module) {
   };
 }
 
-export function getLogFilePath() {
-  return logFilePath;
-}
-
-export function clearLog() {
-  try {
-    if (fs.existsSync(logFilePath)) {
-      fs.unlinkSync(logFilePath);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function isLoggingEnabled() {
-  resolve();
-  return isEnabled;
-}

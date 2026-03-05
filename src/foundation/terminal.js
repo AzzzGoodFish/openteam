@@ -78,7 +78,7 @@ export function killSession(sessionName) {
 /**
  * 清理 TMUX 环境变量，避免嵌套 tmux 问题
  */
-function cleanTmuxEnv() {
+export function cleanTmuxEnv() {
   const env = { ...process.env };
   delete env.TMUX;
   delete env.TMUX_PANE;

@@ -6,6 +6,7 @@
 import { execSync } from 'child_process';
 import {
   addAgentPane,
+  cleanTmuxEnv,
   listPanes,
   respawnPane,
 } from '../../foundation/terminal.js';
@@ -35,9 +36,7 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
     // 第一个 agent 开新 window，与 daemon pane 0 隔离
     if (first && mux === 'tmux') {
       try {
-        const env = { ...process.env };
-        delete env.TMUX;
-        delete env.TMUX_PANE;
+        const env = cleanTmuxEnv();
         execSync(`tmux new-window -t "${sessionName}" -n "${agent}" "${cmd}"`, { stdio: 'ignore', env });
         log.info(`pane created for ${agent} (new window)`);
         first = false;
