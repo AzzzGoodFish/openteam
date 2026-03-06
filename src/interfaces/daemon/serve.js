@@ -32,6 +32,11 @@ export async function startServe(teamName, port, host) {
     throw new Error('serve 启动超时');
   }
 
+  // 转发 serve stderr（包含 Go runtime 和 plugin 输出）
+  serveProcess.stderr.on('data', (chunk) => {
+    log.error('serve stderr', { output: chunk.toString().trim() });
+  });
+
   log.info(`serve started pid=${serveProcess.pid} port=${port}`);
 
   return {

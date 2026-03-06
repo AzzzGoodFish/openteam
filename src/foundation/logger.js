@@ -1,14 +1,10 @@
 /**
  * 日志系统
  *
- * 配置优先级: 环境变量 > settings.json > 默认值
- *
- * 环境变量（覆盖 settings）:
+ * error 级别始终写入日志文件（无需配置）
+ * debug/info/warn 需要启用：
  *   OPENTEAM_LOG=1       启用日志
  *   OPENTEAM_LOG_LEVEL=debug|info|warn|error
- *
- * settings.json:
- *   { "log": { "enabled": true, "level": "info" } }
  *
  * 日志文件: ~/.openteam/openteam.log
  */
@@ -33,21 +29,11 @@ function resolve() {
   if (resolved) return;
   resolved = true;
 
-  // 先读 settings.json（直接读文件，避免循环依赖 settings.js）
-  let settings = {};
-  try {
-    if (fs.existsSync(PATHS.SETTINGS)) {
-      settings = JSON.parse(fs.readFileSync(PATHS.SETTINGS, 'utf8'));
-    }
-  } catch {
-    // ignore
-  }
-
   const envLog = process.env.OPENTEAM_LOG;
   const envLevel = process.env.OPENTEAM_LOG_LEVEL;
 
-  isEnabled = envLog ? envLog !== '' : !!settings?.log?.enabled;
-  const levelStr = envLevel || settings?.log?.level || 'info';
+  isEnabled = !!envLog && envLog !== '';
+  const levelStr = envLevel || 'info';
   minLevel = LOG_LEVELS[levelStr] ?? LOG_LEVELS.info;
 }
 
@@ -63,31 +49,27 @@ function formatMessage(level, module, message, data) {
   return `[${ts}] [${level.toUpperCase()}] [${module}] ${message}${dataStr}`;
 }
 
-let dirEnsured = false;
-function ensureLogDir() {
-  if (dirEnsured) return;
-  try {
-    if (!fs.existsSync(PATHS.OPENTEAM_DIR)) {
-      fs.mkdirSync(PATHS.OPENTEAM_DIR, { recursive: true });
-    }
-    dirEnsured = true;
-  } catch {
-    // ignore
+// 模块加载时确保日志目录存在（error 始终写入，目录必须可用）
+try {
+  if (!fs.existsSync(PATHS.OPENTEAM_DIR)) {
+    fs.mkdirSync(PATHS.OPENTEAM_DIR, { recursive: true });
   }
+} catch {
+  // 无法创建目录时日志静默丢弃
 }
 
 function writeToFile(formatted) {
   try {
-    ensureLogDir();
     fs.appendFileSync(logFilePath, formatted + '\n');
   } catch {
-    // ignore
+    // 写入失败静默丢弃
   }
 }
 
 function log(level, module, message, data = null) {
   resolve();
-  if (!isEnabled) return;
+  // error 始终记录，其余需要 OPENTEAM_LOG=1
+  if (!isEnabled && level !== 'error') return;
   if (LOG_LEVELS[level] < minLevel) return;
 
   const formatted = formatMessage(level, module, message, data);

@@ -3,6 +3,9 @@
  */
 
 import { createSession, postMessage, sessionExists, fetchMessages } from '../foundation/opencode.js';
+import { createLogger } from '../foundation/logger.js';
+
+const log = createLogger('lifecycle');
 import {
   findActiveServeUrl,
   loadActiveSessions,
@@ -92,10 +95,12 @@ export async function getCurrentAgent(sessionID, timeoutMs = 2000) {
       }
 
       return null;
-    } catch {
+    } catch (err) {
+      log.error('getCurrentAgent fetchMessages failed', { sessionID, error: err.message });
       return null;
     }
-  } catch {
+  } catch (err) {
+    log.error('getCurrentAgent failed', { sessionID, error: err.message });
     return null;
   }
 }

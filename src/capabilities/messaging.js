@@ -53,8 +53,8 @@ export async function sendMessage({ from, to, message, teamName, serveUrl }) {
         `[from ${from.name}] ${message}`, { wait: false }
       );
       sent = !!result;
-    } catch {
-      // ignore
+    } catch (err) {
+      log.error('postMessage failed', { to, sessionId: inst.sessionId, error: err.message });
     }
     break;
   }

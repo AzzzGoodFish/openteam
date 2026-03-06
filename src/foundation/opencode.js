@@ -4,6 +4,9 @@
  * 所有 fetch 调用统一带 timeout（默认 10s），防止挂起。
  */
 
+import { createLogger } from './logger.js';
+
+const log = createLogger('opencode');
 const DEFAULT_TIMEOUT = 10000;
 
 /**
@@ -64,7 +67,8 @@ export async function checkHealth(serveUrl) {
   try {
     await listAllSessions(serveUrl);
     return true;
-  } catch {
+  } catch (err) {
+    log.error('checkHealth failed', { url: serveUrl, error: err.message });
     return false;
   }
 }
@@ -175,7 +179,8 @@ export async function getProviders(serveUrl) {
     });
     if (!res.ok) return null;
     return res.json();
-  } catch {
+  } catch (err) {
+    log.error('getProviders failed', { url: serveUrl, error: err.message });
     return null;
   }
 }
@@ -249,7 +254,8 @@ export async function sessionExists(serveUrl, sessionID) {
       headers: { Accept: 'application/json' },
     });
     return res.ok;
-  } catch {
+  } catch (err) {
+    log.error('sessionExists failed', { sessionID, url: serveUrl, error: err.message });
     return false;
   }
 }

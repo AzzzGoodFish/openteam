@@ -4,6 +4,9 @@
 
 import fs from 'fs';
 import { execSync, spawn } from 'child_process';
+import { createLogger } from './logger.js';
+
+const log = createLogger('terminal');
 
 /**
  * 检测可用的终端复用器
@@ -196,7 +199,8 @@ export function addAgentPane(mux, sessionName, cmd, paneName) {
       execSync(`zellij run --name "${paneName}" -- bash -c '${cmd}'`, { stdio: 'ignore', env });
       return paneName;
     }
-  } catch {
+  } catch (err) {
+    log.warn('addAgentPane failed', { mux, sessionName, paneName, error: err.message });
     return null;
   }
 }
@@ -228,7 +232,8 @@ export function listPanes(mux, sessionName) {
       }
       return panes;
     }
-  } catch {
+  } catch (err) {
+    log.warn('listPanes failed', { mux, sessionName, error: err.message });
     return [];
   }
 }
@@ -247,7 +252,8 @@ export function respawnPane(mux, sessionName, paneId, cmd) {
       execSync(`zellij run --name "${paneId}" -- bash -c '${cmd}'`, { stdio: 'ignore', env });
       return true;
     }
-  } catch {
+  } catch (err) {
+    log.warn('respawnPane failed', { mux, sessionName, paneId, error: err.message });
     return false;
   }
 }
