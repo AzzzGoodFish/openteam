@@ -132,7 +132,7 @@ function writeZellijLayout(sessionName, cmd) {
 function spawnZellijDetached(sessionName, layoutPath) {
   const logPath = `/tmp/openteam-${sessionName}.log`;
   const logFd = fs.openSync(logPath, 'a');
-  const child = spawn('zellij', ['--layout', layoutPath, '-s', sessionName], {
+  const child = spawn('zellij', ['attach', sessionName, '--create', '--layout', layoutPath], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
@@ -168,7 +168,7 @@ export function startSession(mux, sessionName, cmd, { foreground = false } = {})
     const layoutPath = writeZellijLayout(sessionName, cmd);
     if (foreground) {
       // zellij 的自然模式：创建 + attach 一步完成
-      execSync(`zellij --layout "${layoutPath}" -s "${sessionName}"`, { stdio: 'inherit' });
+      execSync(`zellij attach "${sessionName}" --create --layout "${layoutPath}"`, { stdio: 'inherit' });
     } else {
       spawnZellijDetached(sessionName, layoutPath);
     }
