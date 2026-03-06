@@ -4,8 +4,6 @@
 
 import { createSession, postMessage, sessionExists, fetchMessages } from '../foundation/opencode.js';
 import { createLogger } from '../foundation/logger.js';
-
-const log = createLogger('lifecycle');
 import {
   findActiveServeUrl,
   loadActiveSessions,
@@ -16,6 +14,8 @@ import {
   removeInstance,
 } from '../foundation/state.js';
 import { listTeams, loadTeamConfig } from '../foundation/config.js';
+
+const log = createLogger('lifecycle');
 
 // ── 身份识别 ──
 
