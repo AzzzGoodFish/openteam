@@ -113,10 +113,11 @@ function getTmuxPaneCount(sessionName, env) {
  * 写 zellij layout 文件，返回路径
  */
 function writeZellijLayout(sessionName, cmd) {
+  const escapedCmd = cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const layout = `layout {
     tab name="${sessionName}" {
         pane command="bash" name="daemon" {
-            args "-c" "${cmd}"
+            args "-c" "${escapedCmd}"
         }
     }
 }`;
