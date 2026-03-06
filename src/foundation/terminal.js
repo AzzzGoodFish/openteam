@@ -127,22 +127,21 @@ function writeZellijLayout(sessionName, cmd) {
 }
 
 /**
- * spawn + detach 启动 zellij session（后台模式）
+ * 后台创建 zellij session 并注入 daemon 命令
+ * 两步：attach --create-background 建 session，zellij run 塞命令
  */
-function spawnZellijDetached(sessionName, layoutPath) {
-  const logPath = `/tmp/openteam-${sessionName}.log`;
-  const logFd = fs.openSync(logPath, 'a');
-  const child = spawn('zellij', ['attach', sessionName, '--create', '--layout', layoutPath], {
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-  });
-  child.unref();
-  fs.closeSync(logFd);
+function spawnZellijDetached(sessionName, cmd) {
+  const env = cleanMuxEnv();
+  // 创建后台 session
+  execSync(`zellij attach "${sessionName}" --create-background`, { stdio: 'ignore', env });
   // 等待 session 出现
   for (let i = 0; i < 10; i++) {
     if (hasSession('zellij', sessionName)) break;
     execSync('sleep 0.5');
   }
+  // 注入 daemon 命令
+  const runEnv = { ...env, ZELLIJ_SESSION_NAME: sessionName };
+  execSync(`zellij run --name "daemon" -- bash -c 'exec ${cmd.replace(/'/g, "'\\''")}'`, { stdio: 'ignore', env: runEnv });
 }
 
 /**
@@ -165,12 +164,13 @@ export function startSession(mux, sessionName, cmd, { foreground = false } = {})
       execSync(`tmux attach -t "${sessionName}"`, { stdio: 'inherit', env });
     }
   } else if (mux === 'zellij') {
-    const layoutPath = writeZellijLayout(sessionName, cmd);
     if (foreground) {
-      // zellij 的自然模式：创建 + attach 一步完成
-      execSync(`zellij attach "${sessionName}" --create --layout "${layoutPath}"`, { stdio: 'inherit' });
+      // -s 指定 session 名，-n 指定 layout 文件，前台一步完成
+      const layoutPath = writeZellijLayout(sessionName, cmd);
+      execSync(`zellij -s "${sessionName}" -n "${layoutPath}"`, { stdio: 'inherit' });
     } else {
-      spawnZellijDetached(sessionName, layoutPath);
+      // 后台：create-background + zellij run 注入命令
+      spawnZellijDetached(sessionName, cmd);
     }
   }
 }
