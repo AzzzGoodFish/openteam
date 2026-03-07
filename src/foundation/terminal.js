@@ -3,6 +3,7 @@
  */
 
 import fs from 'fs';
+import path from 'path';
 import { execSync, spawn } from 'child_process';
 import { createLogger } from './logger.js';
 
@@ -50,6 +51,16 @@ export function hasSession(mux, sessionName) {
 }
 
 /**
+ * 同时检查 tmux/zellij 是否存在该会话
+ * @returns {{ any: boolean, tmux: boolean, zellij: boolean }}
+ */
+export function hasSessionAny(sessionName) {
+  const tmux = hasSession('tmux', sessionName);
+  const zellij = hasSession('zellij', sessionName);
+  return { any: tmux || zellij, tmux, zellij };
+}
+
+/**
  * 附加到已有 mux 会话（阻塞直到用户退出）
  */
 export function attachSession(mux, sessionName) {
@@ -73,6 +84,20 @@ export function killSession(sessionName) {
     execSync(`zellij delete-session "${sessionName}" --force 2>/dev/null`, { stdio: 'ignore' });
   } catch {
     // zellij session doesn't exist or zellij not installed
+  }
+  // 清理 zellij session resurrection 缓存，防止新建同名 session 时恢复旧 layout
+  try {
+    const zellijCache = path.join(process.env.HOME, '.cache', 'zellij');
+    if (fs.existsSync(zellijCache)) {
+      for (const ver of fs.readdirSync(zellijCache)) {
+        const sessionDir = path.join(zellijCache, ver, 'session_info', sessionName);
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+      }
+    }
+  } catch {
+    // ignore
   }
 }
 

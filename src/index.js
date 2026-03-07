@@ -4,19 +4,19 @@
  * 团队协作插件。记忆功能已迁移到 openmemory 插件。
  */
 
-import { tool } from '@opencode-ai/plugin';
+import { tool } from '@opencode-ai/plugin/tool';
 import { createHooks } from './interfaces/plugin/hooks.js';
 import { createToolDefs } from './interfaces/plugin/tools.js';
 
-const OpenTeamPlugin = async (ctx) => {
+const OpenTeamPlugin = async () => {
   // Only load when started via openteam (OPENTEAM_TEAM env var is set)
   const teamName = process.env.OPENTEAM_TEAM;
   if (!teamName) {
     return {};
   }
 
-  const hooks = createHooks(ctx);
-  const toolDefs = createToolDefs(ctx);
+  const hooks = createHooks();
+  const toolDefs = createToolDefs();
 
   // Convert tool definitions to OpenCode format
   const tools = {};

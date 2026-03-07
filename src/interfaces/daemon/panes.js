@@ -61,7 +61,7 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
  * 健康检查：检测 dead pane 并 respawn
  * @returns {{ checked: number, respawned: number }}
  */
-export function checkAndRespawn(mux, sessionName, teamName, serveUrl) {
+export function checkAndRespawn(mux, sessionName, teamName, projectDir, serveUrl) {
   const panes = listPanes(mux, sessionName);
   let checked = 0;
   let respawned = 0;
@@ -74,7 +74,7 @@ export function checkAndRespawn(mux, sessionName, teamName, serveUrl) {
     if (!pane.alive) {
       log.warn(`dead pane detected: ${pane.name || pane.id}`);
       const agentName = pane.name;
-      const instances = getAgentInstances(teamName, agentName);
+      const instances = getAgentInstances(teamName, projectDir, agentName);
       if (instances.length > 0) {
         const cmd = buildAttachCmd(serveUrl, instances[0].sessionId);
         const ok = respawnPane(mux, sessionName, pane.id, cmd);

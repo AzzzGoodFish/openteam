@@ -13,12 +13,13 @@ const log = createLogger('daemon:serve');
  * 启动 opencode serve 子进程
  * @returns {Promise<{process, pid, port, host, url}>}
  */
-export async function startServe(teamName, port, host) {
+export async function startServe(teamName, projectDir, port, host) {
   const serveProcess = spawn('opencode', ['serve', '--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       OPENTEAM_TEAM: teamName,
+      OPENTEAM_PROJECT_DIR: projectDir,
       OPENMEMORY: process.env.OPENMEMORY || '',
     },
   });

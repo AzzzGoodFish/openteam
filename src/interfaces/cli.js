@@ -3,18 +3,18 @@
  */
 
 import { execSync } from 'child_process';
-import { PATHS } from '../foundation/constants.js';
+import { PATHS, projectDirHash } from '../foundation/constants.js';
 import { loadTeamConfig, getTeamLeader, listTeams, isAgentInTeam, validateTeamConfig } from '../foundation/config.js';
 import {
   getRuntime,
   clearRuntime,
-  isServeRunning,
   getServeUrl,
   findAvailablePort,
   loadActiveSessions,
+  listRunningInstances,
 } from '../foundation/state.js';
 import { sessionExists, fetchSession } from '../foundation/opencode.js';
-import { detectMultiplexer, hasSession, attachSession, startSession, killSession, isInsideMux } from '../foundation/terminal.js';
+import { detectMultiplexer, hasSession, hasSessionAny, attachSession, startSession, killSession, isInsideMux } from '../foundation/terminal.js';
 import { ensureAgent } from '../capabilities/lifecycle.js';
 
 // ── 输出辅助 ──
@@ -38,6 +38,29 @@ function success(msg) {
   console.log(`${GREEN}${msg}${NC}`);
 }
 
+// ── 辅助：自动选择运行实例 ──
+
+/**
+ * 根据 --dir 或自动扫描找到唯一运行实例
+ * @returns {{ projectDir: string, runtime: object }}
+ */
+function resolveInstance(teamName, options = {}) {
+  if (options.dir) {
+    const projectDir = options.dir;
+    const runtime = getRuntime(teamName, projectDir);
+    if (!runtime) error(`团队 ${teamName} 在 ${projectDir} 未运行`);
+    return { projectDir, runtime };
+  }
+
+  const instances = listRunningInstances(teamName);
+  if (instances.length === 0) error(`团队 ${teamName} 未运行`);
+  if (instances.length > 1) {
+    const list = instances.map(i => `  ${i.projectDir}`).join('\n');
+    error(`团队 ${teamName} 有多个运行实例，请指定 --dir:\n${list}`);
+  }
+  return instances[0];
+}
+
 // ── 命令实现 ──
 
 /**
@@ -58,7 +81,18 @@ export async function cmdStart(teamName, options) {
     error('未找到 tmux 或 zellij，请先安装其中一个');
   }
 
-  const sessionName = `openteam-${teamName}`;
+  const sessionName = `openteam-${teamName}-${projectDirHash(projectDir)}`;
+
+  // 以 runtime 作为权威来源：有 mux 会话但无 runtime => 残留；有 runtime 但无 mux 会话 => 残留
+  const runtime = getRuntime(teamName, projectDir);
+  if (hasSession(mux, sessionName) && !runtime) {
+    info(`检测到残留 ${mux} 会话，正在清理后重建...`);
+    killSession(sessionName);
+  }
+  if (!hasSession(mux, sessionName) && runtime) {
+    info('检测到残留 runtime 状态，正在清理后重建...');
+    clearRuntime(teamName, projectDir);
+  }
 
   // 已有 session → 直接 attach（幂等）
   if (hasSession(mux, sessionName)) {
@@ -104,15 +138,11 @@ export async function cmdStart(teamName, options) {
 /**
  * 附加到 agent 会话
  */
-export async function cmdAttach(teamName, agentName) {
+export async function cmdAttach(teamName, agentName, options = {}) {
   teamName = teamName || 'team1';
 
-  if (!isServeRunning(teamName)) {
-    error(`团队 ${teamName} 未运行，请先执行 'openteam start ${teamName}'`);
-  }
-
-  const runtime = getRuntime(teamName);
-  const serveUrl = getServeUrl(teamName);
+  const { projectDir, runtime } = resolveInstance(teamName, options);
+  const serveUrl = getServeUrl(teamName, projectDir);
 
   if (!agentName) {
     agentName = getTeamLeader(teamName);
@@ -151,20 +181,22 @@ export function cmdList() {
 
   for (const teamName of teams) {
     const teamConfig = loadTeamConfig(teamName);
-    const runtime = getRuntime(teamName);
-    const isRunning = runtime !== null;
-
-    const status = isRunning ? `${GREEN}运行中${NC}` : `${YELLOW}已停止${NC}`;
     const leader = teamConfig?.leader || `${RED}未配置${NC}`;
     const agents = teamConfig?.agents?.join(', ') || `${RED}未配置${NC}`;
+    const instances = listRunningInstances(teamName);
 
     console.log(`${teamName}`);
-    console.log(`  状态:    ${status}`);
     console.log(`  Leader:  ${leader}`);
     console.log(`  成员:    ${agents}`);
-    if (isRunning) {
-      const serveUrl = getServeUrl(teamName);
-      console.log(`  URL:     ${serveUrl}`);
+
+    if (instances.length === 0) {
+      console.log(`  状态:    ${YELLOW}已停止${NC}`);
+    } else {
+      for (const inst of instances) {
+        const serveUrl = `http://${inst.runtime.serveHost}:${inst.runtime.servePort}`;
+        console.log(`  ${GREEN}运行中${NC}: ${inst.projectDir}`);
+        console.log(`    URL: ${serveUrl}`);
+      }
     }
     console.log('');
   }
@@ -173,18 +205,44 @@ export function cmdList() {
 /**
  * 停止团队 — SIGTERM daemon，daemon 自行清理；兜底清 runtime + kill session
  */
-export function cmdStop(teamName) {
+export function cmdStop(teamName, options = {}) {
   if (!teamName) {
     error('请指定团队名称');
   }
 
-  const runtime = getRuntime(teamName);
+  // 查找运行实例
+  let projectDir, runtime;
+  if (options.dir) {
+    projectDir = options.dir;
+    runtime = getRuntime(teamName, projectDir);
+  } else {
+    const instances = listRunningInstances(teamName);
+    if (instances.length === 1) {
+      ({ projectDir, runtime } = instances[0]);
+    } else if (instances.length > 1) {
+      const list = instances.map(i => `  ${i.projectDir}`).join('\n');
+      error(`团队 ${teamName} 有多个运行实例，请指定 --dir:\n${list}`);
+    }
+  }
+
   if (!runtime) {
+    // 完全没有 runtime 且没有指定 --dir：用前缀扫描兜底
+    // 这是迁移期兼容逻辑 — 旧格式 session 名为 openteam-<team>（无 hash 后缀），
+    // 新格式为 openteam-<team>-<hash>，两者都能匹配到前缀
+    const sessionPrefix = `openteam-${teamName}`;
+    const staleMuxSession = hasSessionAny(sessionPrefix).any;
+    if (staleMuxSession) {
+      info(`团队 ${teamName} 没有 runtime，但发现残留 mux 会话，正在清理...`);
+      killSession(sessionPrefix);
+      success('已清理残留会话');
+      return;
+    }
     error(`团队 ${teamName} 未运行`);
   }
 
   // 优先 SIGTERM daemon 进程
-  const daemonPid = runtime.daemon?.pid || runtime.pid;
+  const daemonPid = runtime.daemonPid;
+  const sessionName = runtime.mux?.session;
   info(`停止团队 ${teamName} (daemon PID: ${daemonPid})...`);
 
   try {
@@ -193,14 +251,12 @@ export function cmdStop(teamName) {
     // 进程已不存在
   }
 
-  // 等待 daemon 清理，然后兜底
+  // 等 daemon 退出，然后清理 mux session（daemon 只管 serve + runtime，不管 session）
   setTimeout(() => {
-    const stillRunning = getRuntime(teamName);
-    if (stillRunning) {
-      clearRuntime(teamName);
-      const sessionName = runtime.mux?.session || `openteam-${teamName}`;
+    if (sessionName) {
       killSession(sessionName);
     }
+    clearRuntime(teamName, projectDir); // 幂等：daemon 可能已清
     success('已停止');
   }, 1000);
 }
@@ -215,45 +271,33 @@ export async function cmdMonitor(teamName, options) {
 /**
  * 展示团队运行状态
  */
-export async function cmdStatus(teamName) {
+export async function cmdStatus(teamName, options = {}) {
   if (!teamName) {
     error('请指定团队名称');
   }
 
-  const runtime = getRuntime(teamName);
-  if (!runtime) {
-    console.log(`团队 ${teamName}: ${RED}未运行${NC}`);
-    return;
-  }
+  const { projectDir, runtime } = resolveInstance(teamName, options);
 
   const teamConfig = loadTeamConfig(teamName);
   const leader = teamConfig?.leader || `${RED}未配置${NC}`;
-  const serveUrl = getServeUrl(teamName);
-
-  // 兼容新旧格式显示
-  const daemonPid = runtime.daemon?.pid;
-  const servePid = runtime.serve?.pid || runtime.pid;
+  const serveUrl = getServeUrl(teamName, projectDir);
 
   console.log(`团队: ${GREEN}${teamName}${NC}`);
   console.log(`状态: ${GREEN}运行中${NC}`);
-  if (daemonPid) {
-    console.log(`Daemon: PID ${daemonPid}`);
+  if (runtime.daemonPid) {
+    console.log(`Daemon: PID ${runtime.daemonPid}`);
   }
-  console.log(`Serve: ${serveUrl} (PID: ${servePid})`);
+  console.log(`Serve: ${serveUrl} (PID: ${runtime.servePid})`);
   console.log(`Leader: ${leader}`);
   console.log(`项目: ${runtime.projectDir}`);
   console.log(`启动于: ${runtime.started}`);
   console.log('');
 
   console.log('活跃会话:');
-  const activeSessions = loadActiveSessions(teamName);
+  const activeSessions = loadActiveSessions(teamName, projectDir);
 
   for (const [agent, instances] of Object.entries(activeSessions)) {
-    const instanceList = Array.isArray(instances)
-      ? instances
-      : [{ sessionId: instances, cwd: null }];
-
-    for (const inst of instanceList) {
+    for (const inst of instances) {
       const exists = await sessionExists(serveUrl, inst.sessionId);
       const cwdHint = inst.cwd ? ` @ ${inst.cwd}` : '';
       if (exists) {
@@ -270,7 +314,8 @@ export async function cmdStatus(teamName) {
 /**
  * 启动 Dashboard TUI
  */
-export async function cmdDashboard(teamName) {
+export async function cmdDashboard(teamName, options = {}) {
+  const { projectDir } = resolveInstance(teamName, options);
   const { dashboard } = await import('./dashboard/index.js');
-  await dashboard(teamName);
+  await dashboard(teamName, projectDir);
 }

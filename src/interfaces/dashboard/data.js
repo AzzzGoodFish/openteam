@@ -9,8 +9,8 @@ import { sessionExists, fetchSession, fetchMessages } from '../../foundation/ope
 /**
  * 获取团队状态数据
  */
-export async function fetchTeamStatus(teamName) {
-  const runtime = getRuntime(teamName);
+export async function fetchTeamStatus(teamName, projectDir) {
+  const runtime = getRuntime(teamName, projectDir);
 
   if (!runtime) {
     return {
@@ -24,8 +24,8 @@ export async function fetchTeamStatus(teamName) {
 
   return {
     running: true,
-    url: getServeUrl(teamName),
-    pid: runtime.serve?.pid || runtime.pid,
+    url: getServeUrl(teamName, projectDir),
+    pid: runtime.servePid,
     leader,
     projectDir: runtime.projectDir || 'N/A',
     started: runtime.started,
@@ -35,16 +35,12 @@ export async function fetchTeamStatus(teamName) {
 /**
  * 获取 Agent 状态数据
  */
-export async function fetchAgentStatus(teamName, serveUrl) {
-  const activeSessions = loadActiveSessions(teamName);
+export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
+  const activeSessions = loadActiveSessions(teamName, projectDir);
   const agentStatuses = [];
 
   for (const [agent, instances] of Object.entries(activeSessions)) {
-    const instanceList = Array.isArray(instances)
-      ? instances
-      : [{ sessionId: instances, cwd: null }];
-
-    for (const inst of instanceList) {
+    for (const inst of instances) {
       try {
         const exists = await sessionExists(serveUrl, inst.sessionId);
         const session = exists ? await fetchSession(serveUrl, inst.sessionId) : null;
@@ -75,15 +71,12 @@ export async function fetchAgentStatus(teamName, serveUrl) {
 /**
  * 获取消息流数据
  */
-export async function fetchMessageStream(teamName, serveUrl, limit = 20) {
+export async function fetchMessageStream(teamName, projectDir, serveUrl, limit = 20) {
   try {
-    const activeSessions = loadActiveSessions(teamName);
+    const activeSessions = loadActiveSessions(teamName, projectDir);
     const sessionEntries = [];
     for (const [agent, instances] of Object.entries(activeSessions)) {
-      const instanceList = Array.isArray(instances)
-        ? instances
-        : [{ sessionId: instances }];
-      for (const inst of instanceList) {
+      for (const inst of instances) {
         sessionEntries.push({ sessionId: inst.sessionId, agent });
       }
     }

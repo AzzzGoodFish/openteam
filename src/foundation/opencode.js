@@ -12,16 +12,50 @@ const DEFAULT_TIMEOUT = 10000;
 /**
  * 带 timeout 的 fetch 封装
  */
-async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT, meta = null) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  const method = options.method || 'GET';
+
+  if (meta?.trace) {
+    log.info('http.start', {
+      trace: meta.trace,
+      method,
+      url,
+      timeoutMs,
+      reason: meta.reason,
+    });
+  }
 
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
+    if (meta?.trace) {
+      log.info('http.done', {
+        trace: meta.trace,
+        method,
+        url,
+        status: res.status,
+        ok: res.ok,
+        durationMs: Date.now() - startedAt,
+        reason: meta.reason,
+      });
+    }
     return res;
   } catch (err) {
     clearTimeout(timeoutId);
+    if (meta?.trace) {
+      log.error('http.failed', {
+        trace: meta.trace,
+        method,
+        url,
+        durationMs: Date.now() - startedAt,
+        error: err.message,
+        name: err.name,
+        reason: meta.reason,
+      });
+    }
     throw err;
   }
 }
@@ -40,10 +74,10 @@ export async function fetchSession(serveUrl, sessionID) {
 /**
  * Fetch messages for a session
  */
-export async function fetchMessages(serveUrl, sessionID, timeoutMs = DEFAULT_TIMEOUT) {
+export async function fetchMessages(serveUrl, sessionID, timeoutMs = DEFAULT_TIMEOUT, meta = null) {
   const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}/message`, {
     headers: { Accept: 'application/json' },
-  }, timeoutMs);
+  }, timeoutMs, meta?.trace ? { ...meta, reason: meta.reason || 'fetchMessages' } : null);
   if (!res.ok) return null;
   return res.json();
 }
@@ -76,7 +110,7 @@ export async function checkHealth(serveUrl) {
 /**
  * Create a new session
  */
-export async function createSession(serveUrl, directory, title, metadata = null) {
+export async function createSession(serveUrl, directory, title, metadata = null, meta = null) {
   const body = { title };
   if (metadata) {
     body.metadata = metadata;
@@ -85,7 +119,7 @@ export async function createSession(serveUrl, directory, title, metadata = null)
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
-  });
+  }, DEFAULT_TIMEOUT, meta?.trace ? { ...meta, reason: meta.reason || 'createSession' } : null);
   if (!res.ok) return null;
   return res.json();
 }
@@ -105,12 +139,22 @@ export async function createSession(serveUrl, directory, title, metadata = null)
  * @param {string} options.system - Custom system prompt
  */
 export async function postMessage(serveUrl, sessionID, directory, agent, message, options = {}) {
-  const { timeout = 120000, pollInterval = 500, model, system, wait = true } = options;
+  const { timeout = 120000, pollInterval = 500, model, system, wait = true, trace = null } = options;
+
+  log.info('postMessage.start', {
+    trace,
+    serveUrl,
+    sessionID,
+    directory,
+    agent,
+    wait,
+    messagePreview: message.slice(0, 80),
+  });
 
   // Get current message count (only if waiting for response)
   let beforeCount = 0;
   if (wait) {
-    const beforeMessages = await fetchMessages(serveUrl, sessionID);
+    const beforeMessages = await fetchMessages(serveUrl, sessionID, DEFAULT_TIMEOUT, { trace, reason: 'postMessage.beforeFetch' });
     beforeCount = beforeMessages?.length || 0;
   }
 
@@ -130,13 +174,20 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(body),
     },
-    30000, // POST 给更长的 timeout
+    30000,
+    trace ? { trace, reason: 'postMessage.prompt_async' } : null,
   );
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    log.warn('postMessage.nonOk', { trace, sessionID, status: res.status });
+    return null;
+  }
 
   // If not waiting, return immediately after sending
-  if (!wait) return { sent: true };
+  if (!wait) {
+    log.info('postMessage.sent', { trace, sessionID, status: res.status });
+    return { sent: true };
+  }
 
   // Poll for assistant response
   const startTime = Date.now();
@@ -144,7 +195,7 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
   while (Date.now() - startTime < timeout) {
     await new Promise((r) => setTimeout(r, pollInterval));
 
-    const messages = await fetchMessages(serveUrl, sessionID);
+    const messages = await fetchMessages(serveUrl, sessionID, DEFAULT_TIMEOUT, { trace, reason: 'postMessage.poll' });
     if (!messages) continue;
 
     // Check if we have a new assistant message
@@ -160,7 +211,7 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
   }
 
   // Timeout - return last message anyway
-  const finalMessages = await fetchMessages(serveUrl, sessionID);
+  const finalMessages = await fetchMessages(serveUrl, sessionID, DEFAULT_TIMEOUT, { trace, reason: 'postMessage.finalFetch' });
   if (finalMessages && finalMessages.length > beforeCount) {
     return finalMessages[finalMessages.length - 1];
   }
@@ -169,93 +220,16 @@ export async function postMessage(serveUrl, sessionID, directory, agent, message
 }
 
 /**
- * @reserved 用于未来 agent 自动选模型场景
- * Get available providers and models
- */
-export async function getProviders(serveUrl) {
-  try {
-    const res = await fetchWithTimeout(`${serveUrl}/provider`, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch (err) {
-    log.error('getProviders failed', { url: serveUrl, error: err.message });
-    return null;
-  }
-}
-
-/**
- * @reserved 用于未来 agent 自动选模型场景
- * Find a small/fast model from available providers
- */
-// provider.models 可能是数组或对象（key-value map），统一转为数组
-function getModelList(models) {
-  if (Array.isArray(models)) return models;
-  if (models && typeof models === 'object') return Object.values(models);
-  return [];
-}
-
-export async function findSmallModel(serveUrl, preferredProviderID = null) {
-  const raw = await getProviders(serveUrl);
-  const providers = Array.isArray(raw) ? raw : raw?.all;
-  if (!providers || !Array.isArray(providers)) return null;
-
-  const smallModelPatterns = [
-    /claude.*haiku/i,
-    /gemini.*flash/i,
-    /gpt-4o-mini/i,
-    /gpt.*mini/i,
-    /gpt.*nano/i,
-    /mini/i,
-    /flash/i,
-  ];
-
-  const sortedProviders = [...providers].sort((a, b) => {
-    if (a.id === preferredProviderID) return -1;
-    if (b.id === preferredProviderID) return 1;
-    return 0;
-  });
-
-  if (preferredProviderID) {
-    const preferredProvider = sortedProviders.find((p) => p.id === preferredProviderID);
-    const models = getModelList(preferredProvider?.models);
-    if (models.length > 0) {
-      for (const pattern of smallModelPatterns) {
-        for (const model of models) {
-          if (pattern.test(model.id) || pattern.test(model.name || '')) {
-            return { providerID: preferredProvider.id, modelID: model.id };
-          }
-        }
-      }
-    }
-  }
-
-  for (const pattern of smallModelPatterns) {
-    for (const provider of sortedProviders) {
-      const models = getModelList(provider.models);
-      for (const model of models) {
-        if (pattern.test(model.id) || pattern.test(model.name || '')) {
-          return { providerID: provider.id, modelID: model.id };
-        }
-      }
-    }
-  }
-
-  return null;
-}
-
-/**
  * Check if a session exists
  */
-export async function sessionExists(serveUrl, sessionID) {
+export async function sessionExists(serveUrl, sessionID, meta = null) {
   try {
     const res = await fetchWithTimeout(`${serveUrl}/session/${sessionID}`, {
       headers: { Accept: 'application/json' },
-    });
+    }, DEFAULT_TIMEOUT, meta?.trace ? { ...meta, reason: meta.reason || 'sessionExists' } : null);
     return res.ok;
   } catch (err) {
-    log.error('sessionExists failed', { sessionID, url: serveUrl, error: err.message });
+    log.error('sessionExists failed', { trace: meta?.trace, sessionID, url: serveUrl, error: err.message, reason: meta?.reason });
     return false;
   }
 }

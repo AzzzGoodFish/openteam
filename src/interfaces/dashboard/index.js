@@ -15,20 +15,20 @@ const REFRESH_INTERVAL = 3000;
 /**
  * 独立模式：启动 Dashboard（原有行为不变）
  */
-export async function dashboard(teamName) {
-  if (!isServeRunning(teamName)) {
+export async function dashboard(teamName, projectDir) {
+  if (!isServeRunning(teamName, projectDir)) {
     console.error(`\x1b[31m错误:\x1b[0m 团队 ${teamName} 未运行`);
     console.log(`请先运行: openteam start ${teamName}`);
     process.exit(1);
   }
 
-  const serveUrl = getServeUrl(teamName);
+  const serveUrl = getServeUrl(teamName, projectDir);
   const ui = createDashboard(teamName);
 
-  await refreshDashboard(ui, teamName, serveUrl);
+  await refreshDashboard(ui, teamName, projectDir, serveUrl);
 
   const intervalId = setInterval(async () => {
-    await refreshDashboard(ui, teamName, serveUrl);
+    await refreshDashboard(ui, teamName, projectDir, serveUrl);
   }, REFRESH_INTERVAL);
 
   process.on('exit', () => {
@@ -49,7 +49,7 @@ export async function dashboard(teamName) {
  *
  * @returns {{ start: () => void, stop: () => void, refresh: () => Promise<void> }}
  */
-export function createEmbeddedDashboard(teamName, serveUrl) {
+export function createEmbeddedDashboard(teamName, projectDir, serveUrl) {
   const ui = createDashboard(teamName);
   let intervalId = null;
 
@@ -62,10 +62,10 @@ export function createEmbeddedDashboard(teamName, serveUrl) {
 
   return {
     start() {
-      refreshDashboard(ui, teamName, serveUrl);
+      refreshDashboard(ui, teamName, projectDir, serveUrl);
       intervalId = setInterval(async () => {
         try {
-          await refreshDashboard(ui, teamName, serveUrl);
+          await refreshDashboard(ui, teamName, projectDir, serveUrl);
         } catch {
           // 渲染失败不影响 daemon 核心功能
         }
@@ -76,7 +76,7 @@ export function createEmbeddedDashboard(teamName, serveUrl) {
       try { ui.screen.destroy(); } catch { /* ignore */ }
     },
     async refresh() {
-      await refreshDashboard(ui, teamName, serveUrl);
+      await refreshDashboard(ui, teamName, projectDir, serveUrl);
     },
   };
 }
@@ -84,14 +84,14 @@ export function createEmbeddedDashboard(teamName, serveUrl) {
 /**
  * 刷新 Dashboard 数据并更新 UI
  */
-async function refreshDashboard(ui, teamName, serveUrl) {
+async function refreshDashboard(ui, teamName, projectDir, serveUrl) {
   try {
     const refreshTime = new Date().toLocaleString('zh-CN', { hour12: false });
 
     const [teamStatus, agentStatuses, messages] = await Promise.all([
-      fetchTeamStatus(teamName),
-      fetchAgentStatus(teamName, serveUrl),
-      fetchMessageStream(teamName, serveUrl, 20),
+      fetchTeamStatus(teamName, projectDir),
+      fetchAgentStatus(teamName, projectDir, serveUrl),
+      fetchMessageStream(teamName, projectDir, serveUrl, 20),
     ]);
 
     updateHeader(ui.header, teamName, refreshTime);

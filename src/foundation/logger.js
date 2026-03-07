@@ -5,6 +5,7 @@
  * debug/info/warn 需要启用：
  *   OPENTEAM_LOG=1       启用日志
  *   OPENTEAM_LOG_LEVEL=debug|info|warn|error
+ *   OPENTEAM_LOG_STDERR=1 调试时镜像到 stderr（便于 daemon/serve 捕获）
  *
  * 日志文件: ~/.openteam/openteam.log
  */
@@ -24,6 +25,7 @@ const LOG_LEVELS = {
 let resolved = false;
 let isEnabled = false;
 let minLevel = LOG_LEVELS.info;
+let mirrorToStderr = false;
 
 function resolve() {
   if (resolved) return;
@@ -35,6 +37,7 @@ function resolve() {
   isEnabled = !!envLog && envLog !== '';
   const levelStr = envLevel || 'info';
   minLevel = LOG_LEVELS[levelStr] ?? LOG_LEVELS.info;
+  mirrorToStderr = process.env.OPENTEAM_LOG_STDERR === '1';
 }
 
 const logFilePath = path.join(PATHS.OPENTEAM_DIR, 'openteam.log');
@@ -74,6 +77,13 @@ function log(level, module, message, data = null) {
 
   const formatted = formatMessage(level, module, message, data);
   writeToFile(formatted);
+
+  // 在 Go 嵌入式 runtime（插件进程）中 fs 可能不可用，
+  // console.error → serve stderr → daemon pipe 捕获 → 最终写入日志。
+  // 仅在非 daemon 进程中输出，避免破坏 blessed dashboard 渲染。
+  if ((level === 'error' || mirrorToStderr) && !process.env.OPENTEAM_DAEMON) {
+    console.error(formatted);
+  }
 }
 
 export function createLogger(module) {
@@ -84,4 +94,3 @@ export function createLogger(module) {
     error: (message, data) => log('error', module, message, data),
   };
 }
-

@@ -9,7 +9,7 @@
 
 import { loadTeamConfig, validateTeamConfig } from '../../foundation/config.js';
 import { saveRuntime, clearRuntime, findAvailablePort } from '../../foundation/state.js';
-import { DEFAULTS } from '../../foundation/constants.js';
+import { DEFAULTS, projectDirHash } from '../../foundation/constants.js';
 import { createLogger } from '../../foundation/logger.js';
 import { ensureAgent, recoverSessions } from '../../capabilities/lifecycle.js';
 import { startServe, stopServe, onServeCrash } from './serve.js';
@@ -23,6 +23,9 @@ const HEALTH_CHECK_INTERVAL = 10000;
  * Daemon 主入口
  */
 export async function runDaemon(teamName, projectDir, options = {}) {
+  // 标记 daemon 进程，logger 据此跳过 console.error（避免破坏 blessed TUI）
+  process.env.OPENTEAM_DAEMON = '1';
+
   // ── 校验 ──
   const validation = validateTeamConfig(teamName);
   if (!validation.valid) {
@@ -33,7 +36,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   const teamConfig = loadTeamConfig(teamName);
   const agents = teamConfig.agents;
   const muxType = options.mux || 'tmux';
-  const sessionName = `openteam-${teamName}`;
+  const sessionName = `openteam-${teamName}-${projectDirHash(projectDir)}`;
   const host = teamConfig.host || DEFAULTS.HOST;
   let port = teamConfig.port || options.port || 0;
 
@@ -50,7 +53,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
 
   // ── 1. 启动 serve ──
   console.log('启动 serve...');
-  let serve = await startServe(teamName, port, host);
+  let serve = await startServe(teamName, projectDir, port, host);
   console.log(`serve 就绪 (PID: ${serve.pid})`);
 
   const buildRuntimeData = () => ({
@@ -62,11 +65,11 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     started: new Date().toISOString(),
   });
 
-  saveRuntime(teamName, buildRuntimeData());
+  saveRuntime(teamName, projectDir, buildRuntimeData());
 
   // ── 2. 恢复/创建 sessions ──
   console.log('准备 agent sessions...');
-  const { recovered, cleaned } = await recoverSessions(teamName, serve.url);
+  const { recovered, cleaned } = await recoverSessions(teamName, projectDir, serve.url);
   if (recovered > 0 || cleaned > 0) {
     console.log(`  会话恢复: ${recovered} 个有效, ${cleaned} 个已清理`);
   }
@@ -92,10 +95,10 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     if (restarting) return;
     restarting = true;
     console.log(`\nserve 崩溃 (code=${code}, signal=${signal})，正在重启...`);
-    startServe(teamName, port, host)
+    startServe(teamName, projectDir, port, host)
       .then(newServe => {
         serve = newServe;
-        saveRuntime(teamName, buildRuntimeData());
+        saveRuntime(teamName, projectDir, buildRuntimeData());
         onServeCrash(serve.process, handleServeCrash);
         console.log(`serve 已重启 (PID: ${serve.pid})`);
       })
@@ -111,7 +114,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   // ── 5. 健康检查循环 ──
   const healthInterval = setInterval(() => {
     try {
-      const { checked, respawned } = checkAndRespawn(muxType, sessionName, teamName, serve.url);
+      const { checked, respawned } = checkAndRespawn(muxType, sessionName, teamName, projectDir, serve.url);
       if (respawned > 0) {
         log.info(`health check: ${checked} panes checked, ${respawned} respawned`);
       }
@@ -122,7 +125,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
 
   // ── 6. 启动嵌入式 dashboard ──
   console.log('启动 dashboard...\n');
-  const dash = createEmbeddedDashboard(teamName, serve.url);
+  const dash = createEmbeddedDashboard(teamName, projectDir, serve.url);
   dash.start();
 
   // ── 7. 信号处理 — 优雅关闭 ──
@@ -131,7 +134,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     clearInterval(healthInterval);
     dash.stop();
     await stopServe(serve.process);
-    clearRuntime(teamName);
+    clearRuntime(teamName, projectDir);
     log.info('daemon stopped');
     process.exit(0);
   };

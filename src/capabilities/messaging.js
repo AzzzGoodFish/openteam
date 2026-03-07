@@ -23,58 +23,97 @@ const log = createLogger('messaging');
  * @param {string} params.serveUrl
  * @returns {Promise<string>} 结果描述
  */
-export async function sendMessage({ from, to, message, teamName, serveUrl }) {
-  const defaultCwd = getAgentInstances(teamName, from.name)[0]?.cwd || process.cwd();
-  let instances = getAgentInstances(teamName, to);
+export async function sendMessage({ from, to, message, teamName, projectDir, serveUrl, trace }) {
+  const defaultCwd = getAgentInstances(teamName, projectDir, from.name)[0]?.cwd || process.cwd();
+  let instances = getAgentInstances(teamName, projectDir, to);
   let wasWoken = false;
+
+  log.info('sendMessage.start', {
+    trace,
+    from: from.name,
+    to,
+    teamName,
+    serveUrl,
+    defaultCwd,
+    instanceCount: instances.length,
+  });
 
   // 唤醒离线 agent
   if (instances.length === 0) {
-    const wakeResult = await wakeAgent(teamName, to, defaultCwd, serveUrl);
+    const wakeResult = await wakeAgent(teamName, to, defaultCwd, serveUrl, projectDir, { trace, reason: 'sendMessage' });
     if (wakeResult) {
       instances = [wakeResult];
       wasWoken = true;
-      log.info(`[${to}] event=agent_wake`);
+      log.info(`[${to}] event=agent_wake`, { trace, sessionId: wakeResult.sessionId, cwd: wakeResult.cwd });
     } else {
-      return `${to}: 唤醒失败`;
+      return `${to}: 唤醒失败 [trace=${trace}]`;
     }
   }
 
   // 投递消息到第一个可用实例
   let sent = false;
+  let lastError = '';
 
   for (const inst of instances) {
-    const exists = await sessionExists(serveUrl, inst.sessionId);
-    if (!exists) continue;
+    log.info('sendMessage.checkInstance', {
+      trace,
+      to,
+      sessionId: inst.sessionId,
+      cwd: inst.cwd,
+    });
+    let exists;
+    try {
+      exists = await sessionExists(serveUrl, inst.sessionId, { trace, reason: 'sendMessage' });
+    } catch (err) {
+      lastError = `sessionExists threw: ${err.message}`;
+      log.error('sendMessage.sessionExists threw', { trace, to, sessionId: inst.sessionId, error: err.message });
+      continue;
+    }
+    if (!exists) {
+      lastError = `session ${inst.sessionId} not found on ${serveUrl}`;
+      log.warn('sendMessage.instanceMissing', { trace, to, sessionId: inst.sessionId, serveUrl });
+      continue;
+    }
 
     try {
+      // 使用 projectDir 作为 HTTP directory（serve 的 bootstrapped 目录），避免 InstanceBootstrap 挂起
       const result = await postMessage(
-        serveUrl, inst.sessionId, inst.cwd, to,
-        `[from ${from.name}] ${message}`, { wait: false }
+        serveUrl, inst.sessionId, projectDir, to,
+        `[from ${from.name}] ${message}`, { wait: false, trace }
       );
       sent = !!result;
+      if (!sent) lastError = `postMessage returned falsy`;
+      log.info('sendMessage.postMessage.done', {
+        trace,
+        to,
+        sessionId: inst.sessionId,
+        sent,
+      });
     } catch (err) {
-      log.error('postMessage failed', { to, sessionId: inst.sessionId, error: err.message });
+      lastError = `postMessage threw: ${err.message}`;
+      log.error('postMessage failed', { trace, to, sessionId: inst.sessionId, error: err.message });
     }
     break;
   }
 
-  if (!sent) return `${to}: 发送失败`;
-  return wasWoken ? `${to}: 已唤醒` : `${to}: 已通知`;
+  if (!sent) return `${to}: 发送失败 [trace=${trace}, instances=${instances.length}, serveUrl=${serveUrl}, ${lastError}]`;
+  return wasWoken ? `${to}: 已唤醒 [trace=${trace}]` : `${to}: 已通知 [trace=${trace}]`;
 }
 
 /**
  * 向所有成员广播（排除发送者自己）
  */
-export async function broadcast({ from, message, teamName, serveUrl }) {
+export async function broadcast({ from, message, teamName, projectDir, serveUrl, trace }) {
   const teamConfig = loadTeamConfig(teamName);
   if (!teamConfig) return 'Error: 团队配置不存在';
 
   const targets = teamConfig.agents.filter((a) => a !== from.name);
   const results = [];
 
+  log.info('broadcast.start', { trace, from: from.name, targets, teamName, serveUrl });
+
   for (const target of targets) {
-    const result = await sendMessage({ from, to: target, message, teamName, serveUrl });
+    const result = await sendMessage({ from, to: target, message, teamName, projectDir, serveUrl, trace });
     results.push(result);
   }
 

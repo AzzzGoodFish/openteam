@@ -28,6 +28,7 @@ program
 program
   .command('attach [team] [agent]')
   .description('附加到 agent 会话')
+  .option('--dir <directory>', '项目目录')
   .action(cmdAttach);
 
 program
@@ -39,11 +40,13 @@ program
 program
   .command('stop <team>')
   .description('停止团队')
+  .option('--dir <directory>', '项目目录')
   .action(cmdStop);
 
 program
   .command('status <team>')
   .description('查看团队状态')
+  .option('--dir <directory>', '项目目录')
   .action(cmdStatus);
 
 program
@@ -58,6 +61,7 @@ program
 program
   .command('dashboard <team>')
   .description('独立显示团队状态仪表盘')
+  .option('--dir <directory>', '项目目录')
   .action(cmdDashboard);
 
 // 内部命令（不在帮助中显示）

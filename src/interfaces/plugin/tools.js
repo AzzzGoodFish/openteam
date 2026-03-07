@@ -3,7 +3,7 @@
  */
 
 import fs from 'fs';
-import { tool } from '@opencode-ai/plugin';
+import { tool } from '@opencode-ai/plugin/tool';
 import { getCurrentAgent, freeAgent, redirectAgent, getStatus } from '../../capabilities/lifecycle.js';
 import { sendMessage, broadcast } from '../../capabilities/messaging.js';
 import { loadTeamConfig, isAgentInTeam } from '../../foundation/config.js';
@@ -11,6 +11,10 @@ import { getServeUrl } from '../../foundation/state.js';
 import { createLogger } from '../../foundation/logger.js';
 
 const log = createLogger('tools');
+
+function createTraceID() {
+  return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function createToolDefs() {
   return {
@@ -25,13 +29,22 @@ export function createToolDefs() {
         message: tool.schema.string().describe('消息内容'),
       },
       execute: async (args, ctx) => {
-        const currentAgent = await getCurrentAgent(ctx.sessionID);
+        const trace = createTraceID();
+        log.info('msg.execute.start', {
+          trace,
+          fromSessionID: ctx.sessionID,
+          who: args.who || 'all',
+          isBroadcast: !args.who || args.who === 'all',
+        });
+
+        const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'msg.execute' });
         if (!currentAgent) return 'Error: 无法确定当前 agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
         if (!teamConfig) return 'Error: 团队配置不存在';
 
-        const serveUrl = getServeUrl(currentAgent.team);
+        const projectDir = process.env.OPENTEAM_PROJECT_DIR;
+        const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'msg.execute' });
         if (!serveUrl) return 'Error: 团队 serve 未启动';
 
         const isLeader = currentAgent.name === teamConfig.leader;
@@ -42,8 +55,8 @@ export function createToolDefs() {
         if (isBroadcast) {
           // 广播
           const msgPreview = args.message.slice(0, 30) + (args.message.length > 30 ? '...' : '');
-          log.info(`[${currentAgent.name}] event=broadcast preview="${msgPreview}"`);
-          return broadcast({ from: currentAgent, message: args.message, teamName: currentAgent.team, serveUrl });
+          log.info(`[${currentAgent.name}] event=broadcast preview="${msgPreview}"`, { trace, serveUrl });
+          return broadcast({ from: currentAgent, message: args.message, teamName: currentAgent.team, projectDir, serveUrl, trace });
         }
 
         // 单点发送
@@ -52,13 +65,15 @@ export function createToolDefs() {
         }
 
         const msgPreview = args.message.slice(0, 30) + (args.message.length > 30 ? '...' : '');
-        log.info(`[${currentAgent.name}] event=msg_send to=${args.who} preview="${msgPreview}"`);
+        log.info(`[${currentAgent.name}] event=msg_send to=${args.who} preview="${msgPreview}"`, { trace, serveUrl });
 
         return sendMessage({
+          trace,
           from: currentAgent,
           to: args.who,
           message: args.message,
           teamName: currentAgent.team,
+          projectDir,
           serveUrl,
         });
       },
@@ -84,7 +99,8 @@ export function createToolDefs() {
           return `Error: 只有 ${teamConfig.leader} 才能使用 command`;
         }
 
-        const serveUrl = getServeUrl(currentAgent.team);
+        const projectDir = process.env.OPENTEAM_PROJECT_DIR;
+        const serveUrl = getServeUrl(currentAgent.team, projectDir);
         if (!serveUrl) return 'Error: 团队 serve 未启动';
 
         let who = args.who;
@@ -97,7 +113,7 @@ export function createToolDefs() {
 
         // STATUS
         if (args.action === 'status') {
-          return getStatus(currentAgent.team, serveUrl, who);
+          return getStatus(currentAgent.team, projectDir, serveUrl, who);
         }
 
         if (!who) return 'Error: 请指定 who 参数';
@@ -108,14 +124,14 @@ export function createToolDefs() {
 
         // FREE
         if (args.action === 'free') {
-          return freeAgent(currentAgent.team, who, { cwd: args.cwd, alias });
+          return freeAgent(currentAgent.team, projectDir, who, { cwd: args.cwd, alias });
         }
 
         // REDIRECT
         if (args.action === 'redirect') {
           if (!args.cwd) return 'Error: redirect 需要 cwd 参数';
           if (!fs.existsSync(args.cwd)) return `Error: 目录不存在 - ${args.cwd}`;
-          return redirectAgent(currentAgent.team, who, args.cwd, serveUrl, { alias });
+          return redirectAgent(currentAgent.team, projectDir, who, args.cwd, serveUrl, { alias });
         }
 
         return `Error: 未知指令 "${args.action}"，可用: status, free, redirect`;
