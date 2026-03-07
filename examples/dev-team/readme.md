@@ -45,11 +45,11 @@ mkdir -p ~/.opencode/agents/<team-name>
 # Copy team config (edit "name" field to match your team name)
 cp team.json ~/.opencode/agents/<team-name>/
 
-# Copy agent prompts
-cp pm.md architect.md developer.md qa.md ~/.opencode/agents/<team-name>/../
+# Copy agent prompts into the team directory
+cp pm.md architect.md developer.md qa.md ~/.opencode/agents/<team-name>/
 ```
 
-Agent prompts live in `~/.opencode/agents/`, one level above the team directory. The team directory only holds `team.json` and runtime files.
+Agent prompts live in the team directory alongside `team.json`.
 
 ### 2) Install skills
 
@@ -73,4 +73,4 @@ Add to `~/.opencode/opencode.json`:
 openteam start <team-name>
 ```
 
-This launches the serve process and enters the PM (leader) session. Use `openteam monitor <team-name>` to watch all agents in a split-screen layout.
+This launches the daemon, serve process, and enters the PM (leader) session.

@@ -6,8 +6,15 @@
 
 - Leader-成员协作模型，支持异步消息通信。
 - 同一 agent 支持多实例（不同 `cwd` 下并行运行）。
-- `monitor` 一键分屏监控（tmux/zellij，2x2 布局）。
+- Daemon 统一管理团队生命周期（serve、pane、健康检查）。
 - `dashboard` 实时仪表盘查看团队状态。
+
+## 环境要求
+
+| 依赖 | 要求 |
+|------|------|
+| Node.js | 18+ |
+| tmux 或 zellij | 任一 |
 
 ## 安装
 
@@ -96,7 +103,7 @@ mkdir -p ~/.opencode/agents/dev-team
 cp examples/dev-team/team.json ~/.opencode/agents/dev-team/
 
 # 复制角色提示词
-cp examples/dev-team/{pm,architect,developer,qa}.md ~/.opencode/agents/
+cp examples/dev-team/{pm,architect,developer,qa}.md ~/.opencode/agents/dev-team/
 
 # 安装 skills
 cp -r examples/dev-team/skills/* ~/.opencode/skills/
@@ -109,18 +116,21 @@ openteam start dev-team
 
 | 命令 | 说明 |
 |------|------|
-| `openteam start [team]` | 启动团队 serve；前台模式会直接进入 leader 会话 |
+| `openteam start [team]` | 启动团队（创建 tmux/zellij session + daemon） |
 | `openteam start [team] -d` | 后台启动 |
 | `openteam start [team] --dir <directory>` | 指定项目目录 |
 | `openteam attach [team] [agent]` | 附加到 agent 会话（默认 leader） |
-| `openteam attach [team] [agent] --watch` | 监视模式，自动跟随会话变化 |
-| `openteam attach [team] [agent] --cwd <directory>` | 仅在 `--watch` 下筛选实例 |
-| `openteam monitor [team]` | 打开分屏监控（自动检测 zellij/tmux） |
-| `openteam monitor [team] --zellij/--tmux` | 强制使用指定复用器 |
+| `openteam attach [team] [agent] --dir <directory>` | 指定项目目录 |
+| `openteam monitor [team]` | `start` 的别名 |
 | `openteam list` / `openteam ls` | 列出所有已配置团队及运行状态 |
 | `openteam status <team>` | 查看运行状态与会话有效性 |
-| `openteam stop <team>` | 停止团队并清理运行时映射 |
+| `openteam status <team> --dir <directory>` | 指定项目目录 |
+| `openteam stop <team>` | 停止团队（SIGTERM daemon） |
+| `openteam stop <team> --dir <directory>` | 指定项目目录 |
 | `openteam dashboard <team>` | 启动实时状态仪表盘 |
+| `openteam dashboard <team> --dir <directory>` | 指定项目目录 |
+
+同一团队可在不同项目目录启动多个实例。当存在多个实例时，`attach`、`status`、`stop`、`dashboard` 需要 `--dir` 指定目标实例。
 
 ## 团队工具
 
@@ -137,24 +147,24 @@ openteam start dev-team
 
 ## 运行时文件
 
-运行时数据位于 `~/.opencode/agents/<team>/`：
+团队配置和运行时数据分为两级：
 
 ```text
-team.json
-.runtime.json
-.active-sessions.json
-<agent>.md
+~/.opencode/agents/<team>/
+├── team.json                          # 团队配置（团队级）
+├── <agent>.md                         # agent 提示词（团队级）
+└── <hash>/                            # 项目级状态目录（hash = projectDir 的 SHA-256 前 8 位）
+    ├── .runtime.json                  # daemon/serve/mux 运行状态
+    └── .active-sessions.json          # agent → [{ sessionId, cwd }] 会话映射
 ```
 
-- `.runtime.json`: `host`、`port`、`pid`、`projectDir`、`started`，监控时会写入 `monitor` 信息。
-- `.active-sessions.json`: `agent -> [{ sessionId, cwd, alias? }]` 多实例映射（兼容旧格式字符串）。
+- `.runtime.json` 包含 `daemon.pid`、`serve.pid/port/host`、`mux.type/session` 等字段。
+- `.active-sessions.json` 持久化 agent 的多实例会话映射。
 
 ## 注意事项
 
-- 插件仅在 `OPENTEAM_TEAM` 环境变量存在时启用，建议始终通过 `openteam start` 启动。
-- `attach --watch` 会持续轮询并保持等待，按 `Ctrl+C` 退出。
-- `monitor` 使用 2x2 分组，不足 4 个 pane 会用最后一个 agent 补齐。
-- `stop` 会清空 `.active-sessions.json`（会话映射重置）。
+- 插件仅在 `OPENTEAM_TEAM` 环境变量存在时启用，始终通过 `openteam start` 启动。
+- `stop` 向 daemon 发送 SIGTERM；daemon 负责停止 serve 和清理 runtime，CLI 会在 daemon 退出后兜底销毁 mux session。
 
 ## 调试与日志
 
@@ -167,6 +177,17 @@ OPENTEAM_LOG=1 OPENTEAM_LOG_LEVEL=debug openteam start myteam
 ```
 
 - 日志文件：`~/.openteam/openteam.log`
+
+## 上游依赖说明
+
+代码通过 `@opencode-ai/plugin/tool` 子路径导入，绕过上游根入口在 Node ESM 下的扩展名问题。
+
+## 更多文档
+
+- 架构与模块边界：`docs/architecture.md`
+- 开发与验证：`docs/development-guide.md`
+- 示例团队：`examples/dev-team/readme.md`
+- 历史设计记录：`docs/archive/`
 
 ## 许可证
 

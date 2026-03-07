@@ -1,11 +1,14 @@
 # OpenTeam 架构文档
 
+> 这是当前实现的架构真相。`docs/archive/` 中的文档仅保留历史背景，不作为现行约定。
+
 ## 执行摘要
 
 OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 - **团队协作**: Leader-Member 模式，支持 agent 间通信
 - **多实例支持**: 一个 agent 可在多个工作目录运行
-- **运行态可视化**: `monitor` 分屏 + `dashboard` 仪表盘
+- **Daemon 统一管理**: serve 子进程 + agent pane + 健康检查
+- **运行态可视化**: `dashboard` 实时仪表盘
 
 > OpenTeam 只做协作编排；memory 能力不在本仓库内。
 
@@ -14,48 +17,43 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 | 类别 | 技术 | 版本 |
 |------|------|------|
 | 语言 | JavaScript | ES Modules |
-| 运行时 | Node.js | v14+ |
+| 运行时 | Node.js | 18+ |
 | CLI 框架 | Commander.js | ^12.0.0 |
-| 插件 SDK | @opencode-ai/plugin | ^1.1.35 |
+| 插件 SDK | @opencode-ai/plugin | ^1.2.18 |
 
-## 架构模式
+## 三层架构
 
-**插件架构 + CLI 工具**
+依赖单向向下：`Interfaces → Capabilities → Foundation`
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                     用户界面层                           │
+│                     接口层 (Interfaces)                  │
 ├─────────────────────────────────────────────────────────┤
-│  CLI (bin/openteam.js)    │    OpenCode Session         │
-│  - start/stop/attach      │    - 通过插件加载           │
-│  - monitor/status/list    │                             │
-│  - dashboard              │                             │
+│  CLI (cli.js)               │    Plugin (plugin/)       │
+│  - start/stop/attach         │    - tools.js (msg/cmd)  │
+│  - list/status/dashboard    │    - hooks.js (标记/注入) │
+│                              │                          │
+│  Daemon (daemon/)           │    Dashboard (dashboard/) │
+│  - serve 子进程管理          │    - 实时状态 TUI         │
+│  - pane 管理 + 健康检查      │                          │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     插件层                               │
+│                     能力层 (Capabilities)                │
 ├─────────────────────────────────────────────────────────┤
-│  src/plugin/tools.js      │    src/plugin/hooks.js      │
-│  - msg/command 工具        │    - 团队上下文注入         │
-│                           │    - [from boss] 标记       │
+│  lifecycle.js               │    messaging.js           │
+│  - 身份识别                  │    - 消息投递/广播        │
+│  - 会话创建/查找/回收        │    - 团队上下文注入       │
+│  - agent 释放/重定向         │                          │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                     核心服务层                           │
+│                     基础层 (Foundation)                  │
 ├─────────────────────────────────────────────────────────┤
-│  src/team/                │    src/utils/                │
-│  - serve.js (团队服务)    │    - api.js (HTTP API)      │
-│  - config.js (配置加载)   │    - agent.js (身份识别)     │
-│                           │    - logger.js/settings.js  │
-└─────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────┐
-│                   Dashboard 层                           │
-├─────────────────────────────────────────────────────────┤
-│  src/dashboard/           # 团队状态 TUI                │
+│  constants.js  config.js    state.js    opencode.js     │
+│  terminal.js   logger.js                                │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -63,14 +61,17 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     数据层                               │
 ├─────────────────────────────────────────────────────────┤
 │  ~/.opencode/agents/<team>/                             │
-│  - team.json                                            │
-│  - .runtime.json, .active-sessions.json                 │
+│  ├── team.json              # 团队配置                  │
+│  ├── <agent>.md             # agent 提示词              │
+│  └── <hash>/                # 项目级状态目录             │
+│      ├── .runtime.json      # daemon/serve/mux 状态     │
+│      └── .active-sessions.json  # 会话映射              │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## 核心组件
 
-### 1. 团队系统 (src/team/)
+### 1. 团队系统
 
 Leader-Member 模式：
 
@@ -84,7 +85,7 @@ Leader-Member 模式：
 - `free` - 让 agent 休息
 - `redirect` - 切换工作目录
 
-### 2. 插件系统 (src/plugin/)
+### 2. 插件系统 (src/interfaces/plugin/)
 
 **tools.js** - 工具定义：
 1. msg (异步消息)
@@ -106,17 +107,38 @@ Leader-Member 模式：
 │     "leader": "pm",
 │     "agents": ["pm", "architect", "developer"]
 │   }
-└── <agent>.md                # agent 提示词（含 frontmatter 配置）
+└── <agent>.md                # agent 提示词
 ```
 
-### 运行时文件
+### 运行时文件（项目级）
+
+运行时状态按项目隔离，位于 `~/.opencode/agents/<team>/<hash>/`（hash 为 projectDir 的 SHA-256 前 8 位）：
 
 ```
-.runtime.json             # 服务状态（团队级，含 monitor 信息）
-.active-sessions.json     # 活跃会话映射（团队级）
+.runtime.json             # daemon/serve/mux 运行状态
+.active-sessions.json     # agent → [{ sessionId, cwd }] 会话映射
 ```
 
-`.active-sessions.json` 采用多实例结构：`agent -> [{ sessionId, cwd, alias? }]`，并兼容旧字符串格式。
+- `state.js` 读取 `.runtime.json` 后会通过 `normalizeRuntime()` 暴露统一结构。
+- `loadActiveSessions()` 读取 `.active-sessions.json` 后始终返回归一化的实例数组。
+
+## 生命周期
+
+### start
+
+- CLI 创建 tmux/zellij session，pane 0 运行 daemon。
+- daemon 启动 `opencode serve`，恢复已有 session，并确保团队成员会话与 pane 存在。
+
+### stop
+
+- CLI 向 daemon 发送 SIGTERM。
+- daemon 停止 serve、停止 dashboard、清理 runtime 文件。
+- CLI 在 daemon 退出后兜底销毁 mux session，处理残留终端会话。
+
+### attach / status / dashboard
+
+- 同一团队可以在多个项目目录启动实例。
+- 当存在多个项目实例时，这些命令需要 `--dir` 指定目标实例。
 
 ## 消息格式
 
@@ -129,11 +151,11 @@ Leader-Member 模式：
 
 ## 扩展点
 
-1. **新增工具**: 修改 `src/plugin/tools.js`
-2. **新增 command action**: 修改 `src/plugin/tools.js` 中 `command` 分支
+1. **新增工具**: 修改 `src/interfaces/plugin/tools.js`
+2. **新增 command action**: 修改 `src/interfaces/plugin/tools.js` 中 `command` 分支
 
 ## 相关文档
 
-- [设计文档 (DESIGN.md)](./DESIGN.md) - 详细设计说明（中文）
-- [源代码树分析](./source-tree-analysis.md) - 代码结构
-- [开发指南](./development-guide.md) - 开发设置
+- [README](../README.md) - 安装、启动、CLI 使用
+- [开发指南](./development-guide.md) - 开发环境、smoke 验证、调试方式
+- [示例团队](../examples/dev-team/readme.md) - 四角色开发团队示例

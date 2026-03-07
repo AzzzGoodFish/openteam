@@ -4,8 +4,9 @@
 
 | 依赖 | 要求 |
 |------|------|
-| Node.js | 支持 ES Modules (v14+) |
+| Node.js | 18+（需要全局 fetch） |
 | npm | 任意版本 |
+| tmux 或 zellij | 任一 |
 
 ## 安装
 
@@ -27,21 +28,30 @@ npm link
 
 ```
 openteam/
-├── bin/openteam.js      # CLI 入口
-├── src/index.js         # 库入口
-├── src/plugin/          # 插件核心（tools + hooks）
-├── src/team/            # 团队管理
-└── src/utils/           # 工具函数
+├── bin/openteam.js              # CLI 入口
+├── src/
+│   ├── index.js                 # Plugin 入口
+│   ├── interfaces/              # 接口层（CLI、daemon、dashboard、plugin）
+│   ├── capabilities/            # 能力层（lifecycle、messaging）
+│   └── foundation/              # 基础层（state、config、opencode、terminal、logger）
 ```
 
+三层架构，依赖单向向下：Interfaces → Capabilities → Foundation。
+
 > OpenTeam 仅负责协作编排；memory 功能不在本仓库。
+
+## 文档约定
+
+- `README.md`：面向使用者的安装、启动、命令说明。
+- `docs/architecture.md`：当前架构、模块边界、运行时模型。
+- `docs/archive/`：历史方案和设计记录，不作为现行实现约定。
 
 ## 开发命令
 
 | 命令 | 说明 |
 |------|------|
 | `npm install` | 安装依赖 |
-| `npm test` | 运行测试（目前无测试） |
+| `npm test` | 运行 smoke 验证 |
 | `npm link` | 链接到全局 |
 
 ## CLI 使用
@@ -53,23 +63,26 @@ openteam start <team>
 # 后台启动
 openteam start <team> -d
 
+# 指定项目目录
+openteam start <team> --dir /path/to/project
+
 # 附加到会话
 openteam attach <team> [agent]
-openteam attach <team> [agent] --watch
-openteam attach <team> [agent] --watch --cwd /path/to/project
+openteam attach <team> [agent] --dir /path/to/project
 
-# 监控所有 agent
-openteam monitor <team>
+# 查看状态
+openteam status <team>
+openteam status <team> --dir /path/to/project
 
 # 实时仪表盘
 openteam dashboard <team>
 
-# 查看状态
-openteam status <team>
-
 # 停止团队
 openteam stop <team>
+openteam stop <team> --dir /path/to/project
 ```
+
+`monitor` 是 `start` 的别名。
 
 ## 配置 OpenCode
 
@@ -101,16 +114,18 @@ mkdir -p ~/.opencode/agents/<team-name>
 
 ### 3. 创建 agent 提示词
 
-创建 `pm.md`, `architect.md`, `developer.md` 等文件，使用 YAML frontmatter 配置模型等信息。
+在团队目录下创建 `pm.md`, `architect.md`, `developer.md` 等文件。
 
 ## 运行时文件
 
+运行时状态按项目隔离，位于 `~/.opencode/agents/<team>/<hash>/`：
+
 | 文件 | 说明 |
 |------|------|
-| `.runtime.json` | 服务运行状态（含 monitor 信息） |
-| `.active-sessions.json` | 活跃会话映射（多实例） |
+| `.runtime.json` | daemon/serve/mux 运行状态 |
+| `.active-sessions.json` | agent → [{ sessionId, cwd }] 会话映射 |
 
-`.active-sessions.json` 结构为 `agent -> [{ sessionId, cwd, alias? }]`。
+`<hash>` 是 projectDir 的 SHA-256 前 8 位十六进制。
 
 ## 调试
 
@@ -124,9 +139,13 @@ node bin/openteam.js start myteam
 openteam start myteam
 ```
 
+## 上游依赖说明
+
+`@opencode-ai/plugin` 根入口在 Node ESM 下有扩展名问题，代码通过 `@opencode-ai/plugin/tool` 子路径导入绕过。
+
 ## 测试状态
 
-⚠️ **目前无测试** - `npm test` 只是占位符。
+⚠️ **基础 smoke 验证** - `npm test` 验证模块加载和 CLI 基本功能。
 
 ## CI/CD 状态
 
