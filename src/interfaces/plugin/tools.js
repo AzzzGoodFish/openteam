@@ -141,7 +141,7 @@ export function createToolDefs() {
       },
     },
 
-    task: {
+    taskboard: {
       description:
         '任务管理。create（创建任务，仅 leader）、done（完成任务）、list（查看列表）',
       args: {

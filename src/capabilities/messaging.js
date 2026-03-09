@@ -230,8 +230,8 @@ function getCollaborationRules() {
 
 ### 任务系统
 - 收到 \`[task #N]\` 开头的消息表示你有新任务已就绪，按任务要求开始工作
-- 完成后调 \`task(action="done", id=N)\` 标记完成，系统会自动通知下游
-- 用 \`task(action="list")\` 查看所有任务及状态
+- 完成后调 \`taskboard(action="done", id=N)\` 标记完成，系统会自动通知下游
+- 用 \`taskboard(action="list")\` 查看所有任务及状态
 - 任务完成标记后不需要额外用 msg 汇报（系统自动处理流转）
 
 ### Boss 消息回复方式

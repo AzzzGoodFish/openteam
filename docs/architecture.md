@@ -81,15 +81,15 @@ Leader-Member 模式：
 
 | 角色 | 能力 |
 |------|------|
-| Leader | `command` (管理) + `msg` (可广播) + `task` (create) |
-| Member | `msg` (点对点通信) + `task` (done/list) |
+| Leader | `command` (管理) + `msg` (可广播) + `taskboard` (create) |
+| Member | `msg` (点对点通信) + `taskboard` (done/list) |
 
 **command 支持的 action**:
 - `status` - 查看团队状态
 - `free` - 让 agent 休息
 - `redirect` - 切换工作目录
 
-**task 支持的 action**:
+**taskboard 支持的 action**:
 - `create` - 创建任务（仅 leader），支持依赖关系
 - `done` - 标记任务完成，自动通知下游依赖满足的 assignee
 - `list` - 查看所有任务及状态
@@ -99,7 +99,7 @@ Leader-Member 模式：
 **tools.js** - 工具定义：
 1. msg (异步消息)
 2. command (团队管理)
-3. task (任务看板)
+3. taskboard (任务看板)
 
 **hooks.js** - 两个 hook：
 - `messagesTransform`: 给最近一条 user 文本消息添加 `[from boss]`

@@ -7,6 +7,19 @@ import blessed from 'blessed';
 // 模块级变量：保存当前消息列表原始数据，供展开详情用
 let _currentMessages = [];
 
+// Agent 颜色映射（按首次出现顺序轮转）
+const AGENT_COLORS = ['green', 'cyan', 'magenta', 'blue', 'yellow', 'red'];
+const _colorCache = new Map();
+
+function getAgentColor(name) {
+  if (name === 'boss') return 'black-fg}{yellow-bg';  // boss 保持醒目的黄底黑字
+  if (_colorCache.has(name)) return _colorCache.get(name);
+  const idx = _colorCache.size % AGENT_COLORS.length;
+  const color = `${AGENT_COLORS[idx]}-fg`;
+  _colorCache.set(name, color);
+  return color;
+}
+
 /**
  * 创建 Dashboard 界面
  */
@@ -69,30 +82,9 @@ export function createDashboard(teamName) {
     },
   });
 
-  // 任务看板
-  const taskBoard = blessed.box({
-    top: 21,
-    left: 0,
-    width: '100%',
-    height: 12,
-    content: '',
-    tags: true,
-    border: { type: 'line' },
-    label: ' 任务看板 ',
-    scrollable: true,
-    keys: true,
-    vi: true,
-    alwaysScroll: true,
-    scrollbar: { ch: ' ', style: { bg: 'blue' } },
-    style: {
-      fg: 'white',
-      border: { fg: 'blue' },
-    },
-  });
-
   // 消息流列表（可选中）
   const messageStream = blessed.list({
-    top: 33,
+    top: 21,
     left: 0,
     width: '100%',
     height: '100%-33',
@@ -111,6 +103,27 @@ export function createDashboard(teamName) {
       item: { fg: 'white' },
     },
     items: [],
+  });
+
+  // 任务看板（钉在底部）
+  const taskBoard = blessed.box({
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: 12,
+    content: '',
+    tags: true,
+    border: { type: 'line' },
+    label: ' 任务看板 ',
+    scrollable: true,
+    keys: true,
+    vi: true,
+    alwaysScroll: true,
+    scrollbar: { ch: ' ', style: { bg: 'blue' } },
+    style: {
+      fg: 'white',
+      border: { fg: 'blue' },
+    },
   });
 
   // 消息详情弹窗（默认隐藏）
@@ -139,8 +152,8 @@ export function createDashboard(teamName) {
   screen.append(header);
   screen.append(teamStatus);
   screen.append(agentStatus);
-  screen.append(taskBoard);
   screen.append(messageStream);
+  screen.append(taskBoard);
   screen.append(detailBox);
 
   // 全局退出
@@ -326,9 +339,10 @@ export function updateMessageStream(listBox, messages) {
 
   const items = messages.map((msg) => {
     const time = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+    const fromColor = getAgentColor(msg.from);
     const fromTag = msg.from === 'boss'
-      ? '{black-fg}{yellow-bg} [from boss] {/}'
-      : `{black-fg}{green-bg} [from ${msg.from}] {/}`;
+      ? '{black-fg}{yellow-bg} boss {/}'
+      : `{${fromColor}}${msg.from}{/}`;
     const toTag = `{cyan-fg}→ ${msg.to}{/cyan-fg}`;
     const content = msg.content.replace(/\n/g, ' ').slice(0, 80);
 

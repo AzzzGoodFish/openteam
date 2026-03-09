@@ -4,7 +4,7 @@
 
 import { loadTasks, saveTasks } from '../foundation/tasks.js';
 import { deliverMessage } from './messaging.js';
-import { isAgentInTeam } from '../foundation/config.js';
+import { isAgentInTeam, getTeamLeader } from '../foundation/config.js';
 import { createLogger } from '../foundation/logger.js';
 
 const log = createLogger('taskboard');
@@ -84,6 +84,17 @@ export async function completeTask({ teamName, projectDir, serveUrl, agentName, 
     if (allDone) {
       const result = await notifyAssignee(t, teamName, projectDir, serveUrl, trace);
       triggered.push(`#${t.id} ${t.title} → ${t.assignee} (${result})`);
+    }
+  }
+
+  // 通知 leader（如果 leader 不是完成任务的人自己）
+  const leader = getTeamLeader(teamName);
+  if (leader && leader !== agentName) {
+    const leaderMsg = `[task #${taskId} done] ${task.title} — ${agentName} 已完成`;
+    try {
+      await deliverMessage({ to: leader, message: leaderMsg, teamName, projectDir, serveUrl, trace });
+    } catch (err) {
+      log.warn('notifyLeader failed', { trace, taskId, leader, error: err.message });
     }
   }
 
