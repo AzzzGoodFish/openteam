@@ -44,6 +44,7 @@ export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
       try {
         const exists = await sessionExists(serveUrl, inst.sessionId);
         const session = exists ? await fetchSession(serveUrl, inst.sessionId) : null;
+        const activity = exists ? await detectAgentActivity(serveUrl, inst.sessionId) : 'idle';
 
         agentStatuses.push({
           name: agent,
@@ -51,6 +52,7 @@ export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
           cwd: inst.cwd || 'N/A',
           online: exists,
           title: session?.title || 'Unknown',
+          activity,
         });
       } catch (err) {
         agentStatuses.push({
@@ -59,6 +61,7 @@ export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
           cwd: inst.cwd || 'N/A',
           online: false,
           title: 'Error',
+          activity: 'idle',
           error: err.message,
         });
       }
@@ -152,6 +155,33 @@ export async function fetchMessageStream(teamName, projectDir, serveUrl, limit =
     return deduped.slice(-limit);
   } catch (err) {
     return [];
+  }
+}
+
+/**
+ * 检测 agent 活动状态
+ *
+ * 规则（基于最后一条消息）：
+ * - 无消息 → idle（刚创建）
+ * - assistant + finish → idle（待机，已完成回复）
+ * - assistant 无 finish → outputting（输出中，正在生成）
+ * - user → thinking（思考中，等待模型响应）
+ */
+async function detectAgentActivity(serveUrl, sessionId) {
+  try {
+    const messages = await fetchMessages(serveUrl, sessionId);
+    if (!messages || messages.length === 0) return 'idle';
+
+    const last = messages[messages.length - 1];
+    const role = last.info?.role;
+
+    if (role === 'user') return 'thinking';
+    if (role === 'assistant') {
+      return last.info?.finish ? 'idle' : 'outputting';
+    }
+    return 'idle';
+  } catch {
+    return 'idle';
   }
 }
 

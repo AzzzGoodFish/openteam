@@ -8,7 +8,7 @@ import { createRequire } from 'module';
 import { program } from 'commander';
 import {
   cmdStart, cmdAttach, cmdList, cmdStop,
-  cmdStatus, cmdMonitor, cmdDashboard,
+  cmdStatus, cmdMonitor, cmdDashboard, cmdAgentAttach,
 } from '../src/interfaces/cli.js';
 
 const require = createRequire(import.meta.url);
@@ -34,13 +34,13 @@ program
 program
   .command('list')
   .alias('ls')
-  .description('列出所有团队')
+  .description('列出运行中的团队实例')
+  .option('-a, --all', '显示所有团队（含已停止）')
   .action(cmdList);
 
 program
-  .command('stop <team>')
-  .description('停止团队')
-  .option('--dir <directory>', '项目目录')
+  .command('stop <target>')
+  .description('停止团队实例（ID 或团队名称）')
   .action(cmdStop);
 
 program
@@ -64,7 +64,13 @@ program
   .option('--dir <directory>', '项目目录')
   .action(cmdDashboard);
 
-// 内部命令（不在帮助中显示）
+// 内部命令（不在帮助中显示，由 layout / daemon 自动调用）
+program
+  .command('agent-attach <team> <agent>', { hidden: true })
+  .description('等待 agent 会话就绪后 attach')
+  .option('--dir <directory>', '项目目录')
+  .action(cmdAgentAttach);
+
 program
   .command('daemon <team>', { hidden: true })
   .option('--port <port>', 'serve 端口', parseInt)

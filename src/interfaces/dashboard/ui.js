@@ -208,6 +208,12 @@ export function updateTeamStatus(box, teamStatus) {
 
 /**
  * 更新 Agent 状态
+ *
+ * 活动指示器：
+ *   ● 待机   (green)  — idle，已完成回复或刚创建
+ *   ● 思考中 (yellow) — thinking，收到消息等待模型响应
+ *   ● 输出中 (cyan)   — outputting，模型正在生成回复
+ *   ○ 离线   (red)    — offline，会话不存在
  */
 export function updateAgentStatus(box, agentStatuses) {
   if (agentStatuses.length === 0) {
@@ -216,16 +222,33 @@ export function updateAgentStatus(box, agentStatuses) {
   }
 
   const lines = agentStatuses.map((agent) => {
-    const status = agent.online ? '{green-fg}●{/green-fg}' : '{red-fg}○{/red-fg}';
-    const name = agent.name.padEnd(15);
-    const sessionId = agent.sessionId.slice(0, 12).padEnd(12);
+    const indicator = formatActivity(agent);
+    const name = agent.name.padEnd(12);
+    const sessionId = agent.sessionId.slice(0, 8);
     const cwd = agent.cwd.length > 40 ? '...' + agent.cwd.slice(-37) : agent.cwd;
 
-    return `${status} ${name} ${sessionId} ${cwd}`;
+    return `${indicator} ${name} ${sessionId}  ${cwd}`;
   });
 
-  const header = '{bold}状态  Agent          会话ID       工作目录{/bold}';
-  box.setContent([header, ...lines].join('\n'));
+  box.setContent(lines.join('\n'));
+}
+
+/**
+ * 格式化 agent 活动状态指示器
+ *
+ * 所有变体对齐到 8 个可见列宽（CJK 字符占 2 列）：
+ *   "● 待机"   = 6 列 + 2 空格 = 8
+ *   "● 思考中" = 8 列 = 8
+ *   "● 输出中" = 8 列 = 8
+ *   "○ 离线"   = 6 列 + 2 空格 = 8
+ */
+function formatActivity(agent) {
+  if (!agent.online) return '{red-fg}○ 离线{/red-fg}  ';
+  switch (agent.activity) {
+    case 'thinking':   return '{yellow-fg}● 思考中{/yellow-fg}';
+    case 'outputting': return '{cyan-fg}● 输出中{/cyan-fg}';
+    default:           return '{green-fg}● 待机{/green-fg}  ';
+  }
 }
 
 /**
