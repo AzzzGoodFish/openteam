@@ -1,5 +1,6 @@
 /**
- * 运行时状态持久化（serve 进程信息 + agent session 映射）
+ * 统一状态持久化（合并原 .runtime.json + .active-sessions.json → .state.json）
+ * 状态文件在 shutdown 后保留，停止的实例仍可被扫描发现
  */
 
 import fs from 'fs';
@@ -9,12 +10,57 @@ import { createLogger } from './logger.js';
 
 const log = createLogger('state');
 
-/**
- * 获取运行时文件路径（项目级）
- */
-function getRuntimePath(teamName, projectDir) {
-  return path.join(getTeamStateDir(teamName, projectDir), FILES.RUNTIME);
+// ─── 核心读写 ───────────────────────────────────────────────
+
+function getStatePath(teamName, projectDir) {
+  return path.join(getTeamStateDir(teamName, projectDir), FILES.STATE);
 }
+
+/**
+ * 读取统一状态文件，含旧文件自动迁移
+ */
+function loadState(teamName, projectDir) {
+  const statePath = getStatePath(teamName, projectDir);
+
+  if (fs.existsSync(statePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    } catch {
+      return {};
+    }
+  }
+
+  // 迁移旧格式文件
+  const stateDir = getTeamStateDir(teamName, projectDir);
+  const oldRuntimePath = path.join(stateDir, FILES.RUNTIME);
+  const oldSessionsPath = path.join(stateDir, FILES.ACTIVE_SESSIONS);
+
+  const state = {};
+  if (fs.existsSync(oldRuntimePath)) {
+    try { Object.assign(state, JSON.parse(fs.readFileSync(oldRuntimePath, 'utf8'))); } catch {}
+  }
+  if (fs.existsSync(oldSessionsPath)) {
+    try { state.sessions = JSON.parse(fs.readFileSync(oldSessionsPath, 'utf8')); } catch {}
+  }
+
+  if (Object.keys(state).length > 0) {
+    saveState(teamName, projectDir, state);
+    try { if (fs.existsSync(oldRuntimePath)) fs.unlinkSync(oldRuntimePath); } catch {}
+    try { if (fs.existsSync(oldSessionsPath)) fs.unlinkSync(oldSessionsPath); } catch {}
+  }
+
+  return state;
+}
+
+function saveState(teamName, projectDir, state) {
+  const stateDir = getTeamStateDir(teamName, projectDir);
+  if (!fs.existsSync(stateDir)) {
+    fs.mkdirSync(stateDir, { recursive: true });
+  }
+  fs.writeFileSync(getStatePath(teamName, projectDir), JSON.stringify(state, null, 2));
+}
+
+// ─── Runtime 格式兼容 ───────────────────────────────────────
 
 /**
  * 统一 runtime 格式（兼容旧格式 { pid, host, port } → 新格式 { daemon, serve, ... }）
@@ -35,68 +81,66 @@ function normalizeRuntime(raw) {
   };
 }
 
+// ─── Runtime 函数 ───────────────────────────────────────────
+
 /**
  * Load runtime configuration（返回 normalized 格式）
  */
 export function getRuntime(teamName, projectDir, meta = null) {
-  const runtimePath = getRuntimePath(teamName, projectDir);
-  if (!fs.existsSync(runtimePath)) {
-    if (meta?.trace) log.info('getRuntime.missing', { trace: meta.trace, teamName, runtimePath, reason: meta.reason });
+  const state = loadState(teamName, projectDir);
+  if (!state || Object.keys(state).length === 0) {
+    if (meta?.trace) log.info('getRuntime.missing', { trace: meta.trace, teamName, reason: meta.reason });
     return null;
   }
 
-  try {
-    const raw = JSON.parse(fs.readFileSync(runtimePath, 'utf8'));
-    const runtime = normalizeRuntime(raw);
+  const runtime = normalizeRuntime(state);
 
-    if (runtime.daemonPid) {
-      try {
-        process.kill(runtime.daemonPid, 0);
-        if (meta?.trace) {
-          log.info('getRuntime.hit', {
-            trace: meta.trace,
-            teamName,
-            runtimePath,
-            daemonPid: runtime.daemonPid,
-            serveHost: runtime.serveHost,
-            servePort: runtime.servePort,
-            reason: meta.reason,
-          });
-        }
-        return runtime;
-      } catch {
-        if (meta?.trace) log.warn('getRuntime.stalePid', { trace: meta.trace, teamName, runtimePath, daemonPid: runtime.daemonPid, reason: meta.reason });
-        fs.unlinkSync(runtimePath);
-        return null;
+  if (runtime.daemonPid) {
+    try {
+      process.kill(runtime.daemonPid, 0);
+      if (meta?.trace) {
+        log.info('getRuntime.hit', {
+          trace: meta.trace,
+          teamName,
+          daemonPid: runtime.daemonPid,
+          serveHost: runtime.serveHost,
+          servePort: runtime.servePort,
+          reason: meta.reason,
+        });
       }
+      return runtime;
+    } catch {
+      if (meta?.trace) log.warn('getRuntime.stalePid', { trace: meta.trace, teamName, daemonPid: runtime.daemonPid, reason: meta.reason });
+      // 不删除文件 — 状态文件持久保留
+      return null;
     }
-    if (meta?.trace) log.info('getRuntime.noPid', { trace: meta.trace, teamName, runtimePath, reason: meta.reason });
-    return runtime;
-  } catch {
-    if (meta?.trace) log.error('getRuntime.parseFailed', { trace: meta.trace, teamName, runtimePath, reason: meta.reason });
-    return null;
   }
+
+  // 无 daemonPid 说明实例已停止
+  return null;
 }
 
 /**
- * Save runtime configuration
+ * Save runtime configuration（保留 sessions）
  */
-export function saveRuntime(teamName, projectDir, runtime) {
-  const stateDir = getTeamStateDir(teamName, projectDir);
-  if (!fs.existsSync(stateDir)) {
-    fs.mkdirSync(stateDir, { recursive: true });
-  }
-  fs.writeFileSync(getRuntimePath(teamName, projectDir), JSON.stringify(runtime, null, 2));
+export function saveRuntime(teamName, projectDir, runtimeData) {
+  const state = loadState(teamName, projectDir);
+  const sessions = state.sessions || {};
+  saveState(teamName, projectDir, { ...runtimeData, sessions });
 }
 
 /**
- * Clear runtime configuration
+ * Clear runtime configuration（保留 projectDir/team/sessions/started）
  */
 export function clearRuntime(teamName, projectDir) {
-  const runtimePath = getRuntimePath(teamName, projectDir);
-  if (fs.existsSync(runtimePath)) {
-    fs.unlinkSync(runtimePath);
-  }
+  const state = loadState(teamName, projectDir);
+  if (!state || Object.keys(state).length === 0) return;
+  saveState(teamName, projectDir, {
+    projectDir: state.projectDir,
+    team: state.team,
+    started: state.started,
+    sessions: state.sessions || {},
+  });
 }
 
 /**
@@ -132,65 +176,6 @@ export function getServeUrl(teamName, projectDir, meta = null) {
 }
 
 /**
- * Find active serve URL by scanning all teams（嵌套扫描 <team>/<hash>/.runtime.json）
- */
-export function findActiveServeUrl(meta = null) {
-  if (!fs.existsSync(PATHS.AGENTS_DIR)) {
-    const fallback = `http://${DEFAULTS.HOST}:${DEFAULTS.PORT_RANGE_START}`;
-    if (meta?.trace) log.warn('findActiveServeUrl.agentsDirMissing', { trace: meta.trace, fallback, reason: meta.reason });
-    return fallback;
-  }
-
-  const teamDirs = fs.readdirSync(PATHS.AGENTS_DIR, { withFileTypes: true });
-
-  for (const teamEntry of teamDirs) {
-    if (!teamEntry.isDirectory()) continue;
-    const teamDir = path.join(PATHS.AGENTS_DIR, teamEntry.name);
-
-    // 扫描 hash 子目录
-    let hashDirs;
-    try {
-      hashDirs = fs.readdirSync(teamDir, { withFileTypes: true });
-    } catch { continue; }
-
-    for (const hashEntry of hashDirs) {
-      if (!hashEntry.isDirectory()) continue;
-      const runtimePath = path.join(teamDir, hashEntry.name, FILES.RUNTIME);
-
-      if (!fs.existsSync(runtimePath)) continue;
-      try {
-        const raw = JSON.parse(fs.readFileSync(runtimePath, 'utf8'));
-        const rt = normalizeRuntime(raw);
-        if (rt.daemonPid && rt.serveHost && rt.servePort) {
-          try {
-            process.kill(rt.daemonPid, 0);
-            const url = `http://${rt.serveHost}:${rt.servePort}`;
-            if (meta?.trace) {
-              log.info('findActiveServeUrl.hit', {
-                trace: meta.trace,
-                teamName: teamEntry.name,
-                url,
-                daemonPid: rt.daemonPid,
-                reason: meta.reason,
-              });
-            }
-            return url;
-          } catch {
-            // Process not running
-          }
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-  }
-
-  const fallback = `http://${DEFAULTS.HOST}:${DEFAULTS.PORT_RANGE_START}`;
-  if (meta?.trace) log.warn('findActiveServeUrl.fallback', { trace: meta.trace, fallback, reason: meta.reason });
-  return fallback;
-}
-
-/**
  * Find an available port
  */
 export async function findAvailablePort() {
@@ -213,45 +198,33 @@ export async function findAvailablePort() {
   throw new Error('No available port found');
 }
 
-/**
- * 获取活跃会话文件路径（项目级）
- */
-function getActiveSessionsPath(teamName, projectDir) {
-  return path.join(getTeamStateDir(teamName, projectDir), FILES.ACTIVE_SESSIONS);
-}
+// ─── Session 函数 ───────────────────────────────────────────
 
 /**
  * Load active sessions（读取时统一格式：每个 agent → [{ sessionId, cwd, ... }]）
  */
 export function loadActiveSessions(teamName, projectDir) {
-  const sessionsPath = getActiveSessionsPath(teamName, projectDir);
-  if (!fs.existsSync(sessionsPath)) return {};
+  const state = loadState(teamName, projectDir);
+  const raw = state.sessions || {};
 
-  try {
-    const raw = JSON.parse(fs.readFileSync(sessionsPath, 'utf8'));
-    // 统一旧格式（agent → "sessionId" 字符串）为数组
-    for (const [agent, value] of Object.entries(raw)) {
-      if (typeof value === 'string') {
-        raw[agent] = [{ sessionId: value, cwd: null }];
-      } else if (!Array.isArray(value)) {
-        raw[agent] = [];
-      }
+  // 统一旧格式（agent → "sessionId" 字符串）为数组
+  for (const [agent, value] of Object.entries(raw)) {
+    if (typeof value === 'string') {
+      raw[agent] = [{ sessionId: value, cwd: null }];
+    } else if (!Array.isArray(value)) {
+      raw[agent] = [];
     }
-    return raw;
-  } catch {
-    return {};
   }
+  return raw;
 }
 
 /**
- * Save active sessions
+ * Save active sessions（保留 runtime 字段）
  */
 export function saveActiveSessions(teamName, projectDir, sessions) {
-  const stateDir = getTeamStateDir(teamName, projectDir);
-  if (!fs.existsSync(stateDir)) {
-    fs.mkdirSync(stateDir, { recursive: true });
-  }
-  fs.writeFileSync(getActiveSessionsPath(teamName, projectDir), JSON.stringify(sessions, null, 2));
+  const state = loadState(teamName, projectDir);
+  state.sessions = sessions;
+  saveState(teamName, projectDir, state);
 }
 
 /**
@@ -316,11 +289,13 @@ export function removeInstance(teamName, projectDir, agentName, { cwd, alias }) 
   saveActiveSessions(teamName, projectDir, sessions);
 }
 
+// ─── 扫描函数 ───────────────────────────────────────────────
+
 /**
- * 扫描团队的所有运行实例（按 hash 子目录）
- * @returns {Array<{ projectDir: string, runtime: object, hash: string }>}
+ * 扫描团队的所有实例（含运行中和已停止的）
+ * @returns {Array<{ projectDir: string, runtime: object|null, hash: string, alive: boolean, started: string|null }>}
  */
-export function listRunningInstances(teamName) {
+export function listInstances(teamName) {
   const teamDir = getTeamDir(teamName);
   if (!fs.existsSync(teamDir)) return [];
 
@@ -332,24 +307,67 @@ export function listRunningInstances(teamName) {
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const runtimePath = path.join(teamDir, entry.name, FILES.RUNTIME);
-    if (!fs.existsSync(runtimePath)) continue;
+    const statePath = path.join(teamDir, entry.name, FILES.STATE);
+    if (!fs.existsSync(statePath)) continue;
 
     try {
-      const raw = JSON.parse(fs.readFileSync(runtimePath, 'utf8'));
-      const runtime = normalizeRuntime(raw);
-      if (!runtime.daemonPid) continue;
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      const runtime = normalizeRuntime(state);
+      let alive = false;
 
-      process.kill(runtime.daemonPid, 0); // 检查进程存活
+      if (runtime?.daemonPid) {
+        try {
+          process.kill(runtime.daemonPid, 0);
+          alive = true;
+        } catch {}
+      }
+
       results.push({
-        projectDir: runtime.projectDir,
-        runtime,
+        projectDir: state.projectDir ?? null,
+        runtime: alive ? runtime : null,
         hash: entry.name,
+        alive,
+        started: state.started ?? null,
       });
-    } catch {
-      // 进程不存在或解析失败，跳过
-    }
+    } catch {}
   }
 
   return results;
+}
+
+/**
+ * 扫描团队的所有运行实例（按 hash 子目录）
+ * @returns {Array<{ projectDir: string, runtime: object, hash: string }>}
+ */
+export function listRunningInstances(teamName) {
+  return listInstances(teamName).filter(i => i.alive);
+}
+
+/**
+ * 扫描所有团队的所有实例（含运行中和已停止的）
+ */
+export function listAllInstances() {
+  if (!fs.existsSync(PATHS.AGENTS_DIR)) return [];
+  const results = [];
+  let teamDirs;
+  try {
+    teamDirs = fs.readdirSync(PATHS.AGENTS_DIR, { withFileTypes: true });
+  } catch { return []; }
+
+  for (const teamEntry of teamDirs) {
+    if (!teamEntry.isDirectory()) continue;
+    const teamName = teamEntry.name;
+    for (const inst of listInstances(teamName)) {
+      results.push({ teamName, ...inst });
+    }
+  }
+  return results;
+}
+
+/**
+ * 扫描所有团队的所有运行实例
+ * @returns {Array<{ teamName: string, projectDir: string, runtime: object, hash: string }>}
+ */
+export function listAllRunningInstances() {
+  return listAllInstances().filter(i => i.alive);
 }

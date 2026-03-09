@@ -43,7 +43,8 @@ export function createToolDefs() {
         const teamConfig = loadTeamConfig(currentAgent.team);
         if (!teamConfig) return 'Error: 团队配置不存在';
 
-        const projectDir = process.env.OPENTEAM_PROJECT_DIR;
+        const projectDir = currentAgent.projectDir;
+        if (!projectDir) return 'Error: 无法确定项目目录';
         const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'msg.execute' });
         if (!serveUrl) return 'Error: 团队 serve 未启动';
 
@@ -99,7 +100,8 @@ export function createToolDefs() {
           return `Error: 只有 ${teamConfig.leader} 才能使用 command`;
         }
 
-        const projectDir = process.env.OPENTEAM_PROJECT_DIR;
+        const projectDir = currentAgent.projectDir;
+        if (!projectDir) return 'Error: 无法确定项目目录';
         const serveUrl = getServeUrl(currentAgent.team, projectDir);
         if (!serveUrl) return 'Error: 团队 serve 未启动';
 

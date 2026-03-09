@@ -2,10 +2,9 @@
  * Agent 生命周期管理 — 身份识别、会话创建/查找/回收/释放/重定向
  */
 
-import { createSession, postMessage, sessionExists, fetchMessages } from '../foundation/opencode.js';
+import { createSession, postMessage, sessionExists } from '../foundation/opencode.js';
 import { createLogger } from '../foundation/logger.js';
 import {
-  findActiveServeUrl,
   loadActiveSessions,
   saveActiveSessions,
   getAgentInstances,
@@ -52,7 +51,7 @@ function resolveAgentFromSessionMap(sessionID) {
     // 有 projectDir 时直接定位
     if (projectDir) {
       const sessions = loadActiveSessions(team, projectDir);
-      const found = findSessionInMap(sessions, sessionID, team);
+      const found = findSessionInMap(sessions, sessionID, team, projectDir);
       if (found) return found;
       continue;
     }
@@ -61,7 +60,7 @@ function resolveAgentFromSessionMap(sessionID) {
     const instances = listRunningInstances(team);
     for (const inst of instances) {
       const sessions = loadActiveSessions(team, inst.projectDir);
-      const found = findSessionInMap(sessions, sessionID, team);
+      const found = findSessionInMap(sessions, sessionID, team, inst.projectDir);
       if (found) return found;
     }
   }
@@ -72,10 +71,10 @@ function resolveAgentFromSessionMap(sessionID) {
 /**
  * 在 sessions map 中查找 sessionID 对应的 agent
  */
-function findSessionInMap(sessions, sessionID, team) {
+function findSessionInMap(sessions, sessionID, team, projectDir) {
   for (const [agentName, instances] of Object.entries(sessions)) {
     if (instances.some((inst) => inst?.sessionId === sessionID)) {
-      return { team, name: agentName, full: `${team}/${agentName}` };
+      return { team, name: agentName, full: `${team}/${agentName}`, projectDir };
     }
   }
   return null;
@@ -86,51 +85,15 @@ function findSessionInMap(sessions, sessionID, team) {
  */
 export async function getCurrentAgent(sessionID, timeoutMs = 2000, meta = null) {
   try {
-    // 优先从运行时映射反查，避免被模型 mode 干扰
+    // 从运行时映射反查，精确定位
     const mappedAgent = resolveAgentFromSessionMap(sessionID);
     if (mappedAgent) {
       if (meta?.trace) log.info('getCurrentAgent.fromSessionMap', { trace: meta.trace, sessionID, agent: mappedAgent.full, reason: meta.reason });
       return mappedAgent;
     }
 
-    // 全局扫描兜底 — 多团队场景下可能返回错误团队的 serve URL
-    const serveUrl = findActiveServeUrl(meta);
-    log.warn('getCurrentAgent.fallbackToGlobalScan', { sessionID, serveUrl });
-
-    try {
-      const messages = await fetchMessages(serveUrl, sessionID, timeoutMs, meta);
-      if (!messages || messages.length === 0) return null;
-
-      const lastMsg = messages[messages.length - 1];
-      const parsed = parseAgentName(lastMsg?.info?.agent);
-      if (parsed) {
-        if (meta?.trace) log.info('getCurrentAgent.fromMessageAgent', { trace: meta.trace, sessionID, agent: parsed.full, reason: meta.reason });
-        return parsed;
-      }
-
-      // 兼容 info.agent 仅返回成员名的场景
-      const team = process.env.OPENTEAM_TEAM;
-      if (team && lastMsg?.info?.agent) {
-        const teamConfig = loadTeamConfig(team);
-        if (teamConfig?.agents?.includes(lastMsg.info.agent)) {
-          if (meta?.trace) {
-            log.info('getCurrentAgent.fromFallbackTeam', {
-              trace: meta.trace,
-              sessionID,
-              team,
-              agent: lastMsg.info.agent,
-              reason: meta.reason,
-            });
-          }
-          return { team, name: lastMsg.info.agent, full: `${team}/${lastMsg.info.agent}` };
-        }
-      }
-
-      return null;
-    } catch (err) {
-      log.error('getCurrentAgent fetchMessages failed', { trace: meta?.trace, sessionID, serveUrl, error: err.message, reason: meta?.reason });
-      return null;
-    }
+    log.warn('getCurrentAgent.notFound', { sessionID, trace: meta?.trace });
+    return null;
   } catch (err) {
     log.error('getCurrentAgent failed', { trace: meta?.trace, sessionID, error: err.message, reason: meta?.reason });
     return null;

@@ -13,6 +13,7 @@ export const PATHS = {
 
 export const FILES = {
   TEAM_CONFIG: 'team.json',
+  STATE: '.state.json',
   RUNTIME: '.runtime.json',
   ACTIVE_SESSIONS: '.active-sessions.json',
 };
@@ -40,4 +41,18 @@ export function projectDirHash(projectDir) {
  */
 export function getTeamStateDir(teamName, projectDir) {
   return path.join(PATHS.AGENTS_DIR, teamName, projectDirHash(projectDir));
+}
+
+/**
+ * 获取团队实例的 mux session 名称
+ */
+export function getSessionName(teamName, projectDir) {
+  return `openteam-${teamName}-${projectDirHash(projectDir)}`;
+}
+
+/**
+ * 获取团队的 mux session 名称前缀（用于按前缀匹配/扫描）
+ */
+export function getSessionPrefix(teamName) {
+  return `openteam-${teamName}-`;
 }
