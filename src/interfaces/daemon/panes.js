@@ -6,6 +6,7 @@
 import { execSync } from 'child_process';
 import {
   addAgentPane,
+  addStackedTab,
   cleanMuxEnv,
   listPanes,
   respawnPane,
@@ -17,13 +18,48 @@ const log = createLogger('daemon:panes');
 
 /**
  * 为所有 agent 创建 pane
+ *
+ * zellij: 一个 stacked tab，所有 agent 折叠在一起，leader 默认展开
+ * tmux:   每个 agent 一个 window（无 stacked 概念）
+ *
  * @param {string} mux - 复用器类型
  * @param {string} sessionName - mux session 名
  * @param {string[]} agents - agent 列表
  * @param {string} serveUrl - serve URL
  * @param {Map<string, string>} sessionMap - agentName → sessionId
+ * @param {object} [options]
+ * @param {string} [options.leaderName] - leader 名称（zellij stacked 模式下默认展开）
  */
-export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionMap) {
+export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionMap, options = {}) {
+  const { leaderName } = options;
+
+  if (mux === 'zellij') {
+    // zellij: 所有 agent 放入一个 stacked tab，leader 默认展开
+    const panes = [];
+    for (const agent of agents) {
+      const sessionId = sessionMap.get(agent);
+      if (!sessionId) {
+        log.warn(`skip pane for ${agent}: no session`);
+        continue;
+      }
+      panes.push({
+        name: agent,
+        cmd: buildAttachCmd(serveUrl, sessionId),
+        expanded: agent === leaderName,
+      });
+    }
+    if (panes.length > 0) {
+      const ok = addStackedTab(sessionName, 'team', panes);
+      if (ok) {
+        log.info(`stacked tab created with ${panes.length} agents`);
+      } else {
+        log.error('failed to create stacked tab');
+      }
+    }
+    return;
+  }
+
+  // tmux: 保持现有逻辑 — 每个 agent 一个 window
   let first = true;
   for (const agent of agents) {
     const sessionId = sessionMap.get(agent);
@@ -34,7 +70,7 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
     const cmd = buildAttachCmd(serveUrl, sessionId);
 
     // 第一个 agent 开新 window，与 daemon pane 0 隔离
-    if (first && mux === 'tmux') {
+    if (first) {
       try {
         const env = cleanMuxEnv();
         execSync(`tmux new-window -t "${sessionName}" -n "${agent}" "${cmd}"`, { stdio: 'ignore', env });
@@ -67,8 +103,8 @@ export function checkAndRespawn(mux, sessionName, teamName, projectDir, serveUrl
   let respawned = 0;
 
   for (const pane of panes) {
-    // 跳过 daemon 自己的 pane（通常是第一个）
-    if (pane.name === 'daemon' || pane.id === panes[0]?.id) continue;
+    // tmux 的第一个 pane 是 daemon；zellij 只跳过显式命名的 daemon tab
+    if (pane.name === 'daemon' || (mux === 'tmux' && pane.id === panes[0]?.id)) continue;
     checked++;
 
     if (!pane.alive) {

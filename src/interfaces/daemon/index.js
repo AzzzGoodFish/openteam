@@ -7,10 +7,12 @@
  * - 嵌入式 dashboard
  */
 
+import { execSync } from 'child_process';
 import { loadTeamConfig, validateTeamConfig } from '../../foundation/config.js';
 import { saveRuntime, clearRuntime, findAvailablePort } from '../../foundation/state.js';
-import { DEFAULTS, projectDirHash } from '../../foundation/constants.js';
+import { DEFAULTS, getSessionName } from '../../foundation/constants.js';
 import { createLogger } from '../../foundation/logger.js';
+import { cleanMuxEnv } from '../../foundation/terminal.js';
 import { ensureAgent, recoverSessions } from '../../capabilities/lifecycle.js';
 import { startServe, stopServe, onServeCrash } from './serve.js';
 import { createAllAgentPanes, checkAndRespawn } from './panes.js';
@@ -36,7 +38,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   const teamConfig = loadTeamConfig(teamName);
   const agents = teamConfig.agents;
   const muxType = options.mux || 'tmux';
-  const sessionName = `openteam-${teamName}-${projectDirHash(projectDir)}`;
+  const sessionName = getSessionName(teamName, projectDir);
   const host = teamConfig.host || DEFAULTS.HOST;
   let port = teamConfig.port || options.port || 0;
 
@@ -86,8 +88,19 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   }
 
   // ── 3. 创建 agent panes ──
-  console.log('创建 agent panes...');
-  createAllAgentPanes(muxType, sessionName, agents, serve.url, sessionMap);
+  // zellij: layout 已在 startSession 时创建好 stacked agents，agent-attach 自动连接
+  // tmux:   需要动态创建 agent window
+  if (muxType !== 'zellij') {
+    console.log('创建 agent panes...');
+    const leader = teamConfig.leader;
+    createAllAgentPanes(muxType, sessionName, agents, serve.url, sessionMap, { leaderName: leader });
+    try {
+      const env = cleanMuxEnv();
+      execSync(`tmux select-window -t "${sessionName}:0"`, { stdio: 'ignore', env });
+    } catch {
+      // ignore
+    }
+  }
 
   // ── 4. serve 崩溃重启 ──
   let restarting = false;

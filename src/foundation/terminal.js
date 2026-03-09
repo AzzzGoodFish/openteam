@@ -4,10 +4,69 @@
 
 import fs from 'fs';
 import path from 'path';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { createLogger } from './logger.js';
 
 const log = createLogger('terminal');
+const ANSI_ESCAPE_REGEX = /\x1b\[[0-9;]*m/g;
+
+/**
+ * 解析 zellij list-sessions 输出
+ */
+export function parseZellijSessions(output) {
+  return output
+    .split('\n')
+    .map(line => line.replace(ANSI_ESCAPE_REGEX, '').trim())
+    .filter(Boolean)
+    .map(line => {
+      const match = line.match(/^(.+?)(?:\s+\[|$)/);
+      const name = match?.[1]?.trim() || line;
+      return {
+        name,
+        exited: line.includes('(EXITED'),
+        raw: line,
+      };
+    });
+}
+
+function getZellijSessions() {
+  const output = execSync('zellij list-sessions 2>/dev/null', { encoding: 'utf8' });
+  return parseZellijSessions(output);
+}
+
+/**
+ * 获取会话状态
+ * @returns {'active'|'exited'|null}
+ */
+export function getSessionState(mux, sessionName) {
+  try {
+    if (mux === 'tmux') {
+      execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'ignore' });
+      return 'active';
+    }
+    if (mux === 'zellij') {
+      const session = getZellijSessions().find(item => item.name === sessionName);
+      if (!session) return null;
+      return session.exited ? 'exited' : 'active';
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * 清理 zellij resurrection 缓存
+ */
+export function cleanupZellijSessionArtifacts(sessionName, cacheRoot = path.join(process.env.HOME, '.cache', 'zellij')) {
+  if (!fs.existsSync(cacheRoot)) return;
+  for (const ver of fs.readdirSync(cacheRoot)) {
+    const sessionDir = path.join(cacheRoot, ver, 'session_info', sessionName);
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
+  }
+}
 
 /**
  * 检测可用的终端复用器
@@ -36,28 +95,43 @@ export function detectMultiplexer(options = {}) {
  * 检查 multiplexer 会话是否存在
  */
 export function hasSession(mux, sessionName) {
-  try {
-    if (mux === 'tmux') {
-      execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'ignore' });
-      return true;
-    } else if (mux === 'zellij') {
-      const output = execSync('zellij list-sessions 2>/dev/null', { encoding: 'utf8' });
-      return output.includes(sessionName);
-    }
-  } catch {
-    return false;
-  }
-  return false;
+  return getSessionState(mux, sessionName) === 'active';
 }
 
 /**
- * 同时检查 tmux/zellij 是否存在该会话
+ * 同时检查 tmux/zellij 是否存在该会话（含 exited 快照）
  * @returns {{ any: boolean, tmux: boolean, zellij: boolean }}
  */
 export function hasSessionAny(sessionName) {
-  const tmux = hasSession('tmux', sessionName);
-  const zellij = hasSession('zellij', sessionName);
+  const tmux = getSessionState('tmux', sessionName) !== null;
+  const zellij = getSessionState('zellij', sessionName) !== null;
   return { any: tmux || zellij, tmux, zellij };
+}
+
+/**
+ * 按前缀查找所有 mux 会话名（含 exited 快照），用于清理残留
+ * @returns {string[]}
+ */
+export function findSessionsByPrefix(prefix) {
+  const results = [];
+  // tmux
+  try {
+    const output = execSync('tmux list-sessions -F "#{session_name}" 2>/dev/null', { encoding: 'utf8' });
+    for (const name of output.split('\n').filter(Boolean)) {
+      if (name.startsWith(prefix)) results.push(name);
+    }
+  } catch {
+    // tmux not running or not installed
+  }
+  // zellij（含 exited）
+  try {
+    for (const s of getZellijSessions()) {
+      if (s.name.startsWith(prefix)) results.push(s.name);
+    }
+  } catch {
+    // zellij not installed
+  }
+  return [...new Set(results)];
 }
 
 /**
@@ -81,21 +155,18 @@ export function killSession(sessionName) {
     // tmux session doesn't exist or tmux not installed
   }
   try {
+    execSync(`zellij kill-session "${sessionName}" 2>/dev/null`, { stdio: 'ignore' });
+  } catch {
+    // zellij active session doesn't exist or zellij not installed
+  }
+  try {
     execSync(`zellij delete-session "${sessionName}" --force 2>/dev/null`, { stdio: 'ignore' });
   } catch {
     // zellij session doesn't exist or zellij not installed
   }
   // 清理 zellij session resurrection 缓存，防止新建同名 session 时恢复旧 layout
   try {
-    const zellijCache = path.join(process.env.HOME, '.cache', 'zellij');
-    if (fs.existsSync(zellijCache)) {
-      for (const ver of fs.readdirSync(zellijCache)) {
-        const sessionDir = path.join(zellijCache, ver, 'session_info', sessionName);
-        if (fs.existsSync(sessionDir)) {
-          fs.rmSync(sessionDir, { recursive: true, force: true });
-        }
-      }
-    }
+    cleanupZellijSessionArtifacts(sessionName);
   } catch {
     // ignore
   }
@@ -138,53 +209,185 @@ function getTmuxPaneCount(sessionName, env) {
 }
 
 /**
- * 写 zellij layout 文件，返回路径
+ * 等待 zellij session 出现
  */
-function writeZellijLayout(sessionName, cmd) {
+function waitForZellijSession(sessionName) {
+  for (let i = 0; i < 10; i++) {
+    if (hasSession('zellij', sessionName)) return true;
+    execSync('sleep 0.5');
+  }
+  return false;
+}
+
+/**
+ * 生成 zellij 单 pane tab layout，保留默认 tab/status bar
+ */
+function writeZellijTabLayout(sessionName, tabName, cmd) {
+  const safeName = tabName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const escapedTabName = tabName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const escapedCmd = cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const layout = `layout {
-    tab name="${sessionName}" {
-        pane command="bash" name="daemon" {
-            args "-c" "${escapedCmd}"
-        }
+  tab name="${escapedTabName}" {
+    pane size=1 borderless=true {
+      plugin location="zellij:tab-bar"
     }
+    pane command="bash" name="${escapedTabName}" {
+      args "-lc" "exec ${escapedCmd}"
+    }
+    pane size=1 borderless=true {
+      plugin location="zellij:status-bar"
+    }
+  }
 }`;
-  const layoutPath = `/tmp/openteam-daemon-${sessionName}.kdl`;
+  const layoutPath = path.join('/tmp', `openteam-zellij-${sessionName}-${safeName}.kdl`);
   fs.writeFileSync(layoutPath, layout);
   return layoutPath;
 }
 
 /**
- * 后台创建 zellij session 并注入 daemon 命令
- * 两步：attach --create-background 建 session，zellij run 塞命令
+ * 生成 zellij stacked tab layout，所有 panes 折叠在一个 tab 中
+ *
+ * stacked pane：只有一个 pane 展开全屏，其余折叠为标题栏。
+ * expanded=true 的 pane 启动时默认展开（通常是 leader）。
+ *
+ * @param {string} sessionName - session 名
+ * @param {string} tabName - tab 名
+ * @param {Array<{name: string, cmd: string, expanded?: boolean}>} panes - pane 定义
+ * @returns {string} layout 文件路径
  */
-function spawnZellijDetached(sessionName, cmd) {
-  const env = cleanMuxEnv();
-  // 创建后台 session
-  execSync(`zellij attach "${sessionName}" --create-background`, { stdio: 'ignore', env });
-  // 等待 session 出现
-  for (let i = 0; i < 10; i++) {
-    if (hasSession('zellij', sessionName)) break;
-    execSync('sleep 0.5');
+function writeZellijStackedTabLayout(sessionName, tabName, panes) {
+  const escapedTabName = tabName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const paneEntries = panes.map(p => {
+    const eName = p.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const eCmd = p.cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const attrs = p.expanded ? ' expanded=true' : '';
+    return `      pane command="bash" name="${eName}"${attrs} {\n        args "-lc" "exec ${eCmd}"\n      }`;
+  }).join('\n');
+
+  const layout = `layout {
+  tab name="${escapedTabName}" {
+    pane size=1 borderless=true {
+      plugin location="zellij:tab-bar"
+    }
+    pane stacked=true {
+${paneEntries}
+    }
+    pane size=1 borderless=true {
+      plugin location="zellij:status-bar"
+    }
   }
-  // 注入 daemon 命令
-  const runEnv = { ...env, ZELLIJ_SESSION_NAME: sessionName };
-  execSync(`zellij run --name "daemon" -- bash -c 'exec ${cmd.replace(/'/g, "'\\''")}'`, { stdio: 'ignore', env: runEnv });
+}`;
+  const layoutPath = path.join('/tmp', `openteam-zellij-${sessionName}-stacked.kdl`);
+  fs.writeFileSync(layoutPath, layout);
+  return layoutPath;
+}
+
+/**
+ * 生成 zellij session layout（daemon only，含 default_tab_template）
+ */
+function writeZellijSessionLayout(sessionName, daemonTabName, cmd) {
+  const escapedTabName = daemonTabName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const escapedCmd = cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const layout = `layout {
+  default_tab_template {
+    pane size=1 borderless=true {
+      plugin location="zellij:tab-bar"
+    }
+    children
+    pane size=1 borderless=true {
+      plugin location="zellij:status-bar"
+    }
+  }
+
+  tab name="${escapedTabName}" focus=true {
+    pane command="bash" name="${escapedTabName}" {
+      args "-lc" "exec ${escapedCmd}"
+    }
+  }
+}`;
+  const layoutPath = path.join('/tmp', `openteam-zellij-${sessionName}-session.kdl`);
+  fs.writeFileSync(layoutPath, layout);
+  return layoutPath;
+}
+
+/**
+ * 生成 zellij team layout — 同屏显示 dashboard + stacked agents
+ *
+ * 左侧 30%: daemon（嵌入式 dashboard）
+ * 右侧 70%: stacked agents（leader 默认展开，其余折叠为标题栏）
+ *
+ * @param {string} sessionName
+ * @param {string} daemonCmd - daemon 启动命令
+ * @param {Array<{name: string, cmd: string, expanded?: boolean}>} agents
+ */
+function writeZellijTeamLayout(sessionName, daemonCmd, agents) {
+  const eDaemonCmd = daemonCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const paneEntries = agents.map(a => {
+    const eName = a.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const eCmd = a.cmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const attrs = a.expanded ? ' expanded=true' : '';
+    return `        pane command="bash" name="${eName}"${attrs} {\n          args "-lc" "exec ${eCmd}"\n        }`;
+  }).join('\n');
+
+  const layout = `layout {
+  default_tab_template {
+    pane size=1 borderless=true {
+      plugin location="zellij:tab-bar"
+    }
+    children
+    pane size=1 borderless=true {
+      plugin location="zellij:status-bar"
+    }
+  }
+
+  tab name="team" focus=true {
+    pane split_direction="vertical" {
+      pane command="bash" name="daemon" size="30%" {
+        args "-lc" "exec ${eDaemonCmd}"
+      }
+      pane stacked=true {
+${paneEntries}
+      }
+    }
+  }
+}`;
+  const layoutPath = path.join('/tmp', `openteam-zellij-${sessionName}-team.kdl`);
+  fs.writeFileSync(layoutPath, layout);
+  return layoutPath;
+}
+
+/**
+ * 创建 zellij session，daemon 作为 command pane 运行
+ *
+ * 用 -l layout 一步创建 session + daemon tab。
+ * background session 没有 focus 状态，rename-tab/close-pane 等依赖 focus 的 action 全部不可靠，
+ * 只有 layout 方式能可靠地定义 tab 名称和 command pane。
+ */
+function bootstrapZellijSession(sessionName, cmd) {
+  const env = cleanMuxEnv();
+  const layoutPath = writeZellijSessionLayout(sessionName, 'daemon', cmd);
+  execSync(`zellij -l "${layoutPath}" attach "${sessionName}" --create-background`, { stdio: 'ignore', env });
+  if (!waitForZellijSession(sessionName)) {
+    throw new Error(`zellij session not ready: ${sessionName}`);
+  }
 }
 
 /**
  * 统一启动 mux session — 正确处理 tmux/zellij 的根本差异
  *
- * tmux: 先 new-session -d（detached），foreground 时再 attach
- * zellij: 前台时 execSync + stdio:inherit（一步完成）；后台用 spawn detached
+ * tmux: 先 new-session -d（detached），foreground 时再 attach；agent panes 由 daemon 动态创建
+ * zellij: 用 layout 一步创建 session（background session 无 focus，不能用 action 操作 pane）
+ *   - 有 agents: team layout — daemon 左侧 30% + stacked agents 右侧 70%，agent 自行 attach
+ *   - 无 agents: daemon-only layout（兼容非团队模式）
  *
  * @param {'tmux'|'zellij'} mux
  * @param {string} sessionName
- * @param {string} cmd - 首个 pane 运行的命令
+ * @param {string} cmd - daemon 命令
  * @param {object} options
  * @param {boolean} options.foreground - true = 阻塞直到用户退出
+ * @param {Array<{name: string, cmd: string, expanded?: boolean}>} options.agents - agent pane 定义（仅 zellij）
  */
-export function startSession(mux, sessionName, cmd, { foreground = false } = {}) {
+export function startSession(mux, sessionName, cmd, { foreground = false, agents = [] } = {}) {
   if (mux === 'tmux') {
     const env = cleanMuxEnv();
     execSync(`tmux new-session -d -s "${sessionName}" "${cmd}"`, { stdio: 'ignore', env });
@@ -192,13 +395,19 @@ export function startSession(mux, sessionName, cmd, { foreground = false } = {})
       execSync(`tmux attach -t "${sessionName}"`, { stdio: 'inherit', env });
     }
   } else if (mux === 'zellij') {
-    if (foreground) {
-      // -s 指定 session 名，-n 指定 layout 文件，前台一步完成
-      const layoutPath = writeZellijLayout(sessionName, cmd);
-      execSync(`zellij -s "${sessionName}" -n "${layoutPath}"`, { stdio: 'inherit' });
+    if (agents.length > 0) {
+      // team layout: daemon + stacked agents 同屏
+      const env = cleanMuxEnv();
+      const layoutPath = writeZellijTeamLayout(sessionName, cmd, agents);
+      execSync(`zellij -l "${layoutPath}" attach "${sessionName}" --create-background`, { stdio: 'ignore', env });
+      if (!waitForZellijSession(sessionName)) {
+        throw new Error(`zellij session not ready: ${sessionName}`);
+      }
     } else {
-      // 后台：create-background + zellij run 注入命令
-      spawnZellijDetached(sessionName, cmd);
+      bootstrapZellijSession(sessionName, cmd);
+    }
+    if (foreground) {
+      attachSession(mux, sessionName);
     }
   }
 }
@@ -220,13 +429,34 @@ export function addAgentPane(mux, sessionName, cmd, paneName) {
       }
       return paneName;
     } else if (mux === 'zellij') {
-      const env = { ...process.env, ZELLIJ_SESSION_NAME: sessionName };
-      execSync(`zellij run --name "${paneName}" -- bash -c '${cmd}'`, { stdio: 'ignore', env });
+      const env = cleanMuxEnv();
+      const layoutPath = writeZellijTabLayout(sessionName, paneName, cmd);
+      execSync(`zellij --session "${sessionName}" action new-tab --name "${paneName}" --layout "${layoutPath}"`, { stdio: 'ignore', env });
       return paneName;
     }
   } catch (err) {
     log.warn('addAgentPane failed', { mux, sessionName, paneName, error: err.message });
     return null;
+  }
+}
+
+/**
+ * 创建 zellij stacked tab（所有 agent panes 折叠在一个 tab 中）
+ *
+ * @param {string} sessionName - session 名
+ * @param {string} tabName - tab 名
+ * @param {Array<{name: string, cmd: string, expanded?: boolean}>} panes
+ * @returns {boolean}
+ */
+export function addStackedTab(sessionName, tabName, panes) {
+  try {
+    const env = cleanMuxEnv();
+    const layoutPath = writeZellijStackedTabLayout(sessionName, tabName, panes);
+    execSync(`zellij --session "${sessionName}" action new-tab --layout "${layoutPath}"`, { stdio: 'ignore', env });
+    return true;
+  } catch (err) {
+    log.warn('addStackedTab failed', { sessionName, tabName, error: err.message });
+    return false;
   }
 }
 
@@ -248,8 +478,8 @@ export function listPanes(mux, sessionName) {
         return { id, name: name || '', alive: dead !== '1', cmd: cmd || '' };
       });
     } else if (mux === 'zellij') {
-      const env = { ...process.env, ZELLIJ_SESSION_NAME: sessionName };
-      const layout = execSync('zellij action dump-layout', { encoding: 'utf8', env });
+      const env = cleanMuxEnv();
+      const layout = execSync(`zellij --session "${sessionName}" action dump-layout`, { encoding: 'utf8', env });
       const panes = [];
       const matches = layout.matchAll(/pane.*?name="([^"]+)"/g);
       for (const m of matches) {
@@ -273,8 +503,9 @@ export function respawnPane(mux, sessionName, paneId, cmd) {
       execSync(`tmux respawn-pane -t "${paneId}" -k "${cmd}"`, { stdio: 'ignore', env });
       return true;
     } else if (mux === 'zellij') {
-      const env = { ...process.env, ZELLIJ_SESSION_NAME: sessionName };
-      execSync(`zellij run --name "${paneId}" -- bash -c '${cmd}'`, { stdio: 'ignore', env });
+      const env = cleanMuxEnv();
+      const layoutPath = writeZellijTabLayout(sessionName, paneId, cmd);
+      execSync(`zellij --session "${sessionName}" action new-tab --name "${paneId}" --layout "${layoutPath}"`, { stdio: 'ignore', env });
       return true;
     }
   } catch (err) {
