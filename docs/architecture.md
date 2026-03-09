@@ -46,6 +46,9 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │  - 身份识别                  │    - 消息投递/广播        │
 │  - 会话创建/查找/回收        │    - 团队上下文注入       │
 │  - agent 释放/重定向         │                          │
+│                              │    taskboard.js           │
+│                              │    - 任务创建/完成        │
+│                              │    - 依赖检查/自动通知    │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -53,7 +56,7 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     基础层 (Foundation)                  │
 ├─────────────────────────────────────────────────────────┤
 │  constants.js  config.js    state.js    opencode.js     │
-│  terminal.js   logger.js                                │
+│  terminal.js   logger.js    tasks.js                    │
 └─────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -65,7 +68,8 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │  ├── <agent>.md             # agent 提示词              │
 │  └── <hash>/                # 项目级状态目录             │
 │      ├── .runtime.json      # daemon/serve/mux 状态     │
-│      └── .active-sessions.json  # 会话映射              │
+│      ├── .active-sessions.json  # 会话映射              │
+│      └── .tasks.json        # 任务看板数据              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -77,19 +81,25 @@ Leader-Member 模式：
 
 | 角色 | 能力 |
 |------|------|
-| Leader | `command` (管理) + `msg` (可广播) |
-| Member | `msg` (点对点通信) |
+| Leader | `command` (管理) + `msg` (可广播) + `task` (create) |
+| Member | `msg` (点对点通信) + `task` (done/list) |
 
 **command 支持的 action**:
 - `status` - 查看团队状态
 - `free` - 让 agent 休息
 - `redirect` - 切换工作目录
 
+**task 支持的 action**:
+- `create` - 创建任务（仅 leader），支持依赖关系
+- `done` - 标记任务完成，自动通知下游依赖满足的 assignee
+- `list` - 查看所有任务及状态
+
 ### 2. 插件系统 (src/interfaces/plugin/)
 
 **tools.js** - 工具定义：
 1. msg (异步消息)
 2. command (团队管理)
+3. task (任务看板)
 
 **hooks.js** - 两个 hook：
 - `messagesTransform`: 给最近一条 user 文本消息添加 `[from boss]`

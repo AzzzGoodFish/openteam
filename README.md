@@ -132,6 +132,7 @@ openteam start dev-team
 |------|------|------|
 | `msg` | 全员可用（仅 leader 可广播） | 异步消息；目标离线会自动唤醒并建会话 |
 | `command` | 仅 leader | `status` / `free` / `redirect` |
+| `task` | create 仅 leader；done/list 全员 | 任务管理：创建、完成、查看。完成后自动通知下游 |
 
 ### `command` 行为说明
 

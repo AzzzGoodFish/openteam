@@ -6,6 +6,7 @@ import fs from 'fs';
 import { tool } from '@opencode-ai/plugin/tool';
 import { getCurrentAgent, freeAgent, redirectAgent, getStatus } from '../../capabilities/lifecycle.js';
 import { sendMessage, broadcast } from '../../capabilities/messaging.js';
+import { createTask, completeTask, listTasks } from '../../capabilities/taskboard.js';
 import { loadTeamConfig, isAgentInTeam } from '../../foundation/config.js';
 import { getServeUrl } from '../../foundation/state.js';
 import { createLogger } from '../../foundation/logger.js';
@@ -137,6 +138,95 @@ export function createToolDefs() {
         }
 
         return `Error: 未知指令 "${args.action}"，可用: status, free, redirect`;
+      },
+    },
+
+    task: {
+      description:
+        '任务管理。create（创建任务，仅 leader）、done（完成任务）、list（查看列表）',
+      args: {
+        action: tool.schema.string().describe('指令：create、done、list'),
+        title: tool.schema.string().optional().describe('任务标题（create 时必填）'),
+        description: tool.schema.string().optional().describe('任务描述（create 时可选）'),
+        assignee: tool.schema.string().optional().describe('分配给谁（create 时必填）'),
+        depends_on: tool.schema.array(tool.schema.number()).optional().describe('依赖任务 ID 数组（create 时可选）'),
+        id: tool.schema.number().optional().describe('任务 ID（done 时必填）'),
+      },
+      execute: async (args, ctx) => {
+        const trace = createTraceID();
+        const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'task.execute' });
+        if (!currentAgent) return 'Error: 无法确定当前 agent';
+
+        const teamConfig = loadTeamConfig(currentAgent.team);
+        if (!teamConfig) return 'Error: 团队配置不存在';
+
+        const projectDir = currentAgent.projectDir;
+        if (!projectDir) return 'Error: 无法确定项目目录';
+        const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'task.execute' });
+        if (!serveUrl) return 'Error: 团队 serve 未启动';
+
+        // CREATE
+        if (args.action === 'create') {
+          if (currentAgent.name !== teamConfig.leader) {
+            return `Error: 只有 ${teamConfig.leader} 才能创建任务`;
+          }
+          if (!args.title) return 'Error: create 需要 title 参数';
+          if (!args.assignee) return 'Error: create 需要 assignee 参数';
+
+          const result = await createTask({
+            teamName: currentAgent.team, projectDir, serveUrl,
+            title: args.title,
+            description: args.description || '',
+            assignee: args.assignee,
+            dependsOn: args.depends_on || [],
+            trace,
+          });
+
+          if (!result.ok) return `Error: ${result.error}`;
+
+          let response = `任务 #${result.task.id} 已创建：「${result.task.title}」→ ${result.task.assignee}`;
+          if (result.triggered && result.triggered.length > 0) {
+            response += `\n已通知：${result.triggered.join(', ')}`;
+          } else if (result.task.dependsOn.length > 0) {
+            response += `\n等待依赖：${result.task.dependsOn.map(id => '#' + id).join(', ')}`;
+          }
+          return response;
+        }
+
+        // DONE
+        if (args.action === 'done') {
+          if (args.id == null) return 'Error: done 需要 id 参数';
+
+          const result = await completeTask({
+            teamName: currentAgent.team, projectDir, serveUrl,
+            agentName: currentAgent.name,
+            taskId: args.id,
+            trace,
+          });
+
+          if (!result.ok) return `Error: ${result.error}`;
+
+          let response = `任务 #${result.task.id}「${result.task.title}」已完成`;
+          if (result.triggered.length > 0) {
+            response += `\n已触发下游：\n${result.triggered.join('\n')}`;
+          }
+          return response;
+        }
+
+        // LIST
+        if (args.action === 'list') {
+          const tasks = listTasks(currentAgent.team, projectDir);
+          if (tasks.length === 0) return '暂无任务';
+
+          return tasks.map(t => {
+            const status = t.status === 'done' ? '✓' : '⏳';
+            const deps = t.dependsOn.length > 0 ? ` (依赖 ${t.dependsOn.map(id => '#' + id).join(',')})` : '';
+            const desc = t.description ? `\n   ${t.description}` : '';
+            return `#${t.id} ${status} ${t.title} → ${t.assignee}${deps}${desc}`;
+          }).join('\n');
+        }
+
+        return `Error: 未知指令 "${args.action}"，可用: create, done, list`;
       },
     },
   };

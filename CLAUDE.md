@@ -53,12 +53,14 @@ src/
 
 ├── capabilities/                   ── 能力层：做什么 ──
 │   ├── lifecycle.js                Agent 身份识别、会话创建/查找/回收/释放/重定向
-│   └── messaging.js                通信（消息投递/广播）+ 团队上下文注入
+│   ├── messaging.js                通信（消息投递/广播）+ 团队上下文注入
+│   └── taskboard.js               任务看板（创建/完成/依赖检查/自动通知）
 
 ├── foundation/                     ── 基础层：基础设施 ──
 │   ├── constants.js                路径、文件名、默认值常量
 │   ├── config.js                   团队配置读取与校验
 │   ├── state.js                    运行时状态持久化（daemon + serve + mux 信息）
+│   ├── tasks.js                    任务数据持久化
 │   ├── opencode.js                 OpenCode Serve HTTP API 封装
 │   ├── terminal.js                 终端复用器抽象 + daemon pane 管理
 │   └── logger.js                   日志系统

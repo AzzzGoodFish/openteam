@@ -16,6 +16,7 @@ export const FILES = {
   STATE: '.state.json',
   RUNTIME: '.runtime.json',
   ACTIVE_SESSIONS: '.active-sessions.json',
+  TASKS: '.tasks.json',
 };
 
 export const DEFAULTS = {

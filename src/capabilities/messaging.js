@@ -13,24 +13,22 @@ const log = createLogger('messaging');
 // ── 消息投递 ──
 
 /**
- * 向指定 agent 发送消息
+ * 通用消息投递 — 投递一条消息给 agent，带唤醒能力，不加任何前缀
  *
- * @param {object} params
- * @param {{ team, name, full }} params.from - 发送者身份
- * @param {string} params.to - 目标 agent 名称
- * @param {string} params.message - 消息内容
- * @param {string} params.teamName
- * @param {string} params.serveUrl
+ * 与 sendMessage 的区别：
+ * - 没有 from 参数
+ * - 不拼接 [from xxx] 前缀，消息原样投递
+ * - callerCwd 可选，用于唤醒时的 defaultCwd（无则用 projectDir）
+ *
  * @returns {Promise<string>} 结果描述
  */
-export async function sendMessage({ from, to, message, teamName, projectDir, serveUrl, trace }) {
-  const defaultCwd = getAgentInstances(teamName, projectDir, from.name)[0]?.cwd || process.cwd();
+export async function deliverMessage({ to, message, teamName, projectDir, serveUrl, trace, callerCwd }) {
+  const defaultCwd = callerCwd || projectDir;
   let instances = getAgentInstances(teamName, projectDir, to);
   let wasWoken = false;
 
-  log.info('sendMessage.start', {
+  log.info('deliverMessage.start', {
     trace,
-    from: from.name,
     to,
     teamName,
     serveUrl,
@@ -40,7 +38,7 @@ export async function sendMessage({ from, to, message, teamName, projectDir, ser
 
   // 唤醒离线 agent
   if (instances.length === 0) {
-    const wakeResult = await wakeAgent(teamName, to, defaultCwd, serveUrl, projectDir, { trace, reason: 'sendMessage' });
+    const wakeResult = await wakeAgent(teamName, to, defaultCwd, serveUrl, projectDir, { trace, reason: 'deliverMessage' });
     if (wakeResult) {
       instances = [wakeResult];
       wasWoken = true;
@@ -55,7 +53,7 @@ export async function sendMessage({ from, to, message, teamName, projectDir, ser
   let lastError = '';
 
   for (const inst of instances) {
-    log.info('sendMessage.checkInstance', {
+    log.info('deliverMessage.checkInstance', {
       trace,
       to,
       sessionId: inst.sessionId,
@@ -63,15 +61,15 @@ export async function sendMessage({ from, to, message, teamName, projectDir, ser
     });
     let exists;
     try {
-      exists = await sessionExists(serveUrl, inst.sessionId, { trace, reason: 'sendMessage' });
+      exists = await sessionExists(serveUrl, inst.sessionId, { trace, reason: 'deliverMessage' });
     } catch (err) {
       lastError = `sessionExists threw: ${err.message}`;
-      log.error('sendMessage.sessionExists threw', { trace, to, sessionId: inst.sessionId, error: err.message });
+      log.error('deliverMessage.sessionExists threw', { trace, to, sessionId: inst.sessionId, error: err.message });
       continue;
     }
     if (!exists) {
       lastError = `session ${inst.sessionId} not found on ${serveUrl}`;
-      log.warn('sendMessage.instanceMissing', { trace, to, sessionId: inst.sessionId, serveUrl });
+      log.warn('deliverMessage.instanceMissing', { trace, to, sessionId: inst.sessionId, serveUrl });
       continue;
     }
 
@@ -79,11 +77,11 @@ export async function sendMessage({ from, to, message, teamName, projectDir, ser
       // 使用 projectDir 作为 HTTP directory（serve 的 bootstrapped 目录），避免 InstanceBootstrap 挂起
       const result = await postMessage(
         serveUrl, inst.sessionId, projectDir, to,
-        `[from ${from.name}] ${message}`, { wait: false, trace }
+        message, { wait: false, trace }
       );
       sent = !!result;
       if (!sent) lastError = `postMessage returned falsy`;
-      log.info('sendMessage.postMessage.done', {
+      log.info('deliverMessage.postMessage.done', {
         trace,
         to,
         sessionId: inst.sessionId,
@@ -98,6 +96,23 @@ export async function sendMessage({ from, to, message, teamName, projectDir, ser
 
   if (!sent) return `${to}: 发送失败 [trace=${trace}, instances=${instances.length}, serveUrl=${serveUrl}, ${lastError}]`;
   return wasWoken ? `${to}: 已唤醒 [trace=${trace}]` : `${to}: 已通知 [trace=${trace}]`;
+}
+
+/**
+ * 向指定 agent 发送消息（带 [from xxx] 前缀）
+ *
+ * @param {object} params
+ * @param {{ team, name, full }} params.from - 发送者身份
+ * @param {string} params.to - 目标 agent 名称
+ * @param {string} params.message - 消息内容
+ * @param {string} params.teamName
+ * @param {string} params.serveUrl
+ * @returns {Promise<string>} 结果描述
+ */
+export async function sendMessage({ from, to, message, teamName, projectDir, serveUrl, trace }) {
+  const callerCwd = getAgentInstances(teamName, projectDir, from.name)[0]?.cwd || undefined;
+  const prefixedMessage = `[from ${from.name}] ${message}`;
+  return deliverMessage({ to, message: prefixedMessage, teamName, projectDir, serveUrl, trace, callerCwd });
 }
 
 /**
@@ -212,6 +227,12 @@ function getCollaborationRules() {
 - **任务完成后必须用 \`msg\` 向任务分配者汇报结果**
 - 汇报内容：完成了什么、关键产出、是否有遗留问题
 - 不汇报 = 对方不知道你完成了，协作链断裂
+
+### 任务系统
+- 收到 \`[task #N]\` 开头的消息表示你有新任务已就绪，按任务要求开始工作
+- 完成后调 \`task(action="done", id=N)\` 标记完成，系统会自动通知下游
+- 用 \`task(action="list")\` 查看所有任务及状态
+- 任务完成标记后不需要额外用 msg 汇报（系统自动处理流转）
 
 ### Boss 消息回复方式
 - 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中）

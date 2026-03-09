@@ -53,7 +53,7 @@ export function createDashboard(teamName) {
     top: 11,
     left: 0,
     width: '100%',
-    height: 12,
+    height: 10,
     content: '',
     tags: true,
     border: { type: 'line' },
@@ -69,12 +69,33 @@ export function createDashboard(teamName) {
     },
   });
 
-  // 消息流列表（可选中）
-  const messageStream = blessed.list({
-    top: 23,
+  // 任务看板
+  const taskBoard = blessed.box({
+    top: 21,
     left: 0,
     width: '100%',
-    height: '100%-23',
+    height: 12,
+    content: '',
+    tags: true,
+    border: { type: 'line' },
+    label: ' 任务看板 ',
+    scrollable: true,
+    keys: true,
+    vi: true,
+    alwaysScroll: true,
+    scrollbar: { ch: ' ', style: { bg: 'blue' } },
+    style: {
+      fg: 'white',
+      border: { fg: 'blue' },
+    },
+  });
+
+  // 消息流列表（可选中）
+  const messageStream = blessed.list({
+    top: 33,
+    left: 0,
+    width: '100%',
+    height: '100%-33',
     tags: true,
     border: { type: 'line' },
     label: ' 消息流 (↑↓选择 Enter展开 q退出) ',
@@ -118,6 +139,7 @@ export function createDashboard(teamName) {
   screen.append(header);
   screen.append(teamStatus);
   screen.append(agentStatus);
+  screen.append(taskBoard);
   screen.append(messageStream);
   screen.append(detailBox);
 
@@ -172,6 +194,7 @@ export function createDashboard(teamName) {
     header,
     teamStatus,
     agentStatus,
+    taskBoard,
     messageStream,
     detailBox,
   };
@@ -249,6 +272,40 @@ function formatActivity(agent) {
     case 'outputting': return '{cyan-fg}● 输出中{/cyan-fg}';
     default:           return '{green-fg}● 待机{/green-fg}  ';
   }
+}
+
+/**
+ * 更新任务看板
+ */
+export function updateTaskBoard(box, tasks) {
+  if (!tasks || tasks.length === 0) {
+    box.setContent('{yellow-fg}暂无任务{/yellow-fg}');
+    return;
+  }
+
+  const lines = tasks.map(t => {
+    const status = t.status === 'done'
+      ? '{green-fg}✓{/green-fg}'
+      : '{yellow-fg}⏳{/yellow-fg}';
+    const id = `#${t.id}`.padEnd(4);
+    const title = t.title.length > 30 ? t.title.slice(0, 27) + '...' : t.title.padEnd(30);
+    const assignee = `→ ${t.assignee}`.padEnd(16);
+
+    let deps = '';
+    if (t.status === 'pending' && t.dependsOn.length > 0) {
+      const pendingDeps = t.dependsOn.filter(depId => {
+        const dep = tasks.find(d => d.id === depId);
+        return dep && dep.status !== 'done';
+      });
+      if (pendingDeps.length > 0) {
+        deps = `{gray-fg}等 ${pendingDeps.map(id => '#' + id).join(',')}{/gray-fg}`;
+      }
+    }
+
+    return `${id} ${status} ${title} ${assignee} ${deps}`;
+  });
+
+  box.setContent(lines.join('\n'));
 }
 
 /**

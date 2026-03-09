@@ -7,8 +7,8 @@
  */
 
 import { getServeUrl, isServeRunning } from '../../foundation/state.js';
-import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateMessageStream } from './ui.js';
-import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream } from './data.js';
+import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateTaskBoard, updateMessageStream } from './ui.js';
+import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream, fetchTaskBoard } from './data.js';
 
 const REFRESH_INTERVAL = 3000;
 
@@ -88,15 +88,17 @@ async function refreshDashboard(ui, teamName, projectDir, serveUrl) {
   try {
     const refreshTime = new Date().toLocaleString('zh-CN', { hour12: false });
 
-    const [teamStatus, agentStatuses, messages] = await Promise.all([
+    const [teamStatus, agentStatuses, messages, tasks] = await Promise.all([
       fetchTeamStatus(teamName, projectDir),
       fetchAgentStatus(teamName, projectDir, serveUrl),
       fetchMessageStream(teamName, projectDir, serveUrl, 20),
+      Promise.resolve(fetchTaskBoard(teamName, projectDir)),
     ]);
 
     updateHeader(ui.header, teamName, refreshTime);
     updateTeamStatus(ui.teamStatus, teamStatus);
     updateAgentStatus(ui.agentStatus, agentStatuses);
+    updateTaskBoard(ui.taskBoard, tasks);
     updateMessageStream(ui.messageStream, messages);
 
     ui.screen.render();

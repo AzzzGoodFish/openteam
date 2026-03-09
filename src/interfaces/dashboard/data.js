@@ -5,6 +5,7 @@
 import { getRuntime, getServeUrl, loadActiveSessions } from '../../foundation/state.js';
 import { loadTeamConfig } from '../../foundation/config.js';
 import { sessionExists, fetchSession, fetchMessages } from '../../foundation/opencode.js';
+import { loadTasks } from '../../foundation/tasks.js';
 
 /**
  * 获取团队状态数据
@@ -156,6 +157,14 @@ export async function fetchMessageStream(teamName, projectDir, serveUrl, limit =
   } catch (err) {
     return [];
   }
+}
+
+/**
+ * 获取任务看板数据
+ */
+export function fetchTaskBoard(teamName, projectDir) {
+  const { tasks } = loadTasks(teamName, projectDir);
+  return tasks;
 }
 
 /**
