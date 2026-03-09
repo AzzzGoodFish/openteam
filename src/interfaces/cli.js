@@ -380,16 +380,9 @@ export function cmdStop(target) {
 }
 
 /**
- * 监控 — start 的别名
+ * 深入查看团队运行状态与会话有效性
  */
-export async function cmdMonitor(teamName, options) {
-  return cmdStart(teamName, { ...options, dir: options.dir || process.cwd() });
-}
-
-/**
- * 展示团队运行状态
- */
-export async function cmdStatus(teamName, options = {}) {
+export async function cmdInspect(teamName, options = {}) {
   if (!teamName) {
     error('请指定团队名称');
   }

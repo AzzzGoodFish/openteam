@@ -8,7 +8,7 @@ import { createRequire } from 'module';
 import { program } from 'commander';
 import {
   cmdStart, cmdAttach, cmdList, cmdStop,
-  cmdStatus, cmdMonitor, cmdDashboard, cmdAgentAttach,
+  cmdInspect, cmdDashboard, cmdAgentAttach,
 } from '../src/interfaces/cli.js';
 
 const require = createRequire(import.meta.url);
@@ -26,7 +26,7 @@ program
   .action(cmdStart);
 
 program
-  .command('attach [team] [agent]')
+  .command('attach [team] [agent]', { hidden: true })
   .description('附加到 agent 会话')
   .option('--dir <directory>', '项目目录')
   .action(cmdAttach);
@@ -44,22 +44,13 @@ program
   .action(cmdStop);
 
 program
-  .command('status <team>')
-  .description('查看团队状态')
+  .command('inspect <team>')
+  .description('查看团队详细状态与会话有效性')
   .option('--dir <directory>', '项目目录')
-  .action(cmdStatus);
+  .action(cmdInspect);
 
 program
-  .command('monitor [team]')
-  .description('启动团队（start 的别名）')
-  .option('-d, --detach', '后台运行')
-  .option('--dir <directory>', '项目目录')
-  .option('--tmux', '强制使用 tmux')
-  .option('--zellij', '强制使用 zellij')
-  .action(cmdMonitor);
-
-program
-  .command('dashboard <team>')
+  .command('dashboard <team>', { hidden: true })
   .description('独立显示团队状态仪表盘')
   .option('--dir <directory>', '项目目录')
   .action(cmdDashboard);

@@ -38,7 +38,7 @@ src/
 ├── index.js                        # Plugin 入口 — 导出 hooks + tools
 
 ├── interfaces/                     ── 接口层：谁在调用 ──
-│   ├── cli.js                      CLI 命令（start/stop/attach/list/status/monitor/dashboard）
+│   ├── cli.js                      CLI 命令（start/stop/list/inspect）
 │   ├── daemon/                     Daemon 生命周期管理（团队的持久管理进程）
 │   │   ├── index.js                主循环 + 信号处理 + dashboard 嵌入
 │   │   ├── serve.js                serve 子进程管理（启动/重启/停止）
@@ -141,6 +141,5 @@ openteam start → 创建 tmux/zellij session
 - 启动时会校验 leader 必须在 agents 列表中
 - 消息轮询间隔 500ms（在 `src/foundation/opencode.js` 中）
 - `start` 创建 tmux/zellij session 并启动 daemon；重复运行时 attach 到已有 session（幂等）
-- `monitor` 是 `start` 的别名（向后兼容）
 - `stop` 向 daemon 发送 SIGTERM，daemon 负责优雅关闭 serve、清理所有 pane
 - Pane 管理完全由 daemon 负责：messaging 层不再有终端副作用

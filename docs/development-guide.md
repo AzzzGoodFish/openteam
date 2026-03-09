@@ -66,23 +66,17 @@ openteam start <team> -d
 # 指定项目目录
 openteam start <team> --dir /path/to/project
 
-# 附加到会话
-openteam attach <team> [agent]
-openteam attach <team> [agent] --dir /path/to/project
-
 # 查看状态
-openteam status <team>
-openteam status <team> --dir /path/to/project
+openteam inspect <team>
+openteam inspect <team> --dir /path/to/project
 
-# 实时仪表盘
-openteam dashboard <team>
+# 列出团队
+openteam list
 
 # 停止团队
 openteam stop <team>
 openteam stop <team> --dir /path/to/project
 ```
-
-`monitor` 是 `start` 的别名。
 
 ## 配置 OpenCode
 

@@ -30,8 +30,8 @@ OpenTeam 是 OpenCode 的 Agent 团队协作插件，提供：
 │                     接口层 (Interfaces)                  │
 ├─────────────────────────────────────────────────────────┤
 │  CLI (cli.js)               │    Plugin (plugin/)       │
-│  - start/stop/attach         │    - tools.js (msg/cmd)  │
-│  - list/status/dashboard    │    - hooks.js (标记/注入) │
+│  - start/stop/list/inspect   │    - tools.js (msg/cmd)  │
+│                              │    - hooks.js (标记/注入) │
 │                              │                          │
 │  Daemon (daemon/)           │    Dashboard (dashboard/) │
 │  - serve 子进程管理          │    - 实时状态 TUI         │
@@ -135,10 +135,10 @@ Leader-Member 模式：
 - daemon 停止 serve、停止 dashboard、清理 runtime 文件。
 - CLI 在 daemon 退出后兜底销毁 mux session，处理残留终端会话。
 
-### attach / status / dashboard
+### inspect
 
 - 同一团队可以在多个项目目录启动实例。
-- 当存在多个项目实例时，这些命令需要 `--dir` 指定目标实例。
+- 当存在多个项目实例时，`inspect` 等命令需要 `--dir` 指定目标实例。
 
 ## 消息格式
 

@@ -119,18 +119,12 @@ openteam start dev-team
 | `openteam start [team]` | 启动团队（创建 tmux/zellij session + daemon） |
 | `openteam start [team] -d` | 后台启动 |
 | `openteam start [team] --dir <directory>` | 指定项目目录 |
-| `openteam attach [team] [agent]` | 附加到 agent 会话（默认 leader） |
-| `openteam attach [team] [agent] --dir <directory>` | 指定项目目录 |
-| `openteam monitor [team]` | `start` 的别名 |
 | `openteam list` / `openteam ls` | 列出所有已配置团队及运行状态 |
-| `openteam status <team>` | 查看运行状态与会话有效性 |
-| `openteam status <team> --dir <directory>` | 指定项目目录 |
-| `openteam stop <team>` | 停止团队（SIGTERM daemon） |
-| `openteam stop <team> --dir <directory>` | 指定项目目录 |
-| `openteam dashboard <team>` | 启动实时状态仪表盘 |
-| `openteam dashboard <team> --dir <directory>` | 指定项目目录 |
+| `openteam inspect <team>` | 查看运行状态与会话有效性 |
+| `openteam inspect <team> --dir <directory>` | 指定项目目录 |
+| `openteam stop <target>` | 停止团队（SIGTERM daemon） |
 
-同一团队可在不同项目目录启动多个实例。当存在多个实例时，`attach`、`status`、`stop`、`dashboard` 需要 `--dir` 指定目标实例。
+同一团队可在不同项目目录启动多个实例。当存在多个实例时，`inspect`、`stop` 需要 `--dir` 指定目标实例。
 
 ## 团队工具
 
