@@ -21,13 +21,13 @@ export function createToolDefs() {
   return {
     msg: {
       description:
-        '给团队 agent 发消息（异步，像发微信）。直接输出文字对方看不到，必须用 msg。收到 [from agent] 消息后需用 msg 回复对方才能看到。注意：收到 [from boss] 时直接回复即可，不要用 msg——boss 在同一会话中，不是 agent。Leader 可广播。',
+        'Send a message to a team agent (async). Your text output is invisible to other agents — use this tool to communicate. When you receive [from <agent>], reply with msg. IMPORTANT: When you receive [from boss], reply directly in your output — boss is in your session, not an agent. Leader can broadcast by omitting "who".',
       args: {
         who: tool.schema
           .string()
           .optional()
-          .describe('发给谁。不填或填 "all" 表示广播（仅 leader）'),
-        message: tool.schema.string().describe('消息内容'),
+          .describe('Target agent name. Omit or set to "all" to broadcast (leader only).'),
+        message: tool.schema.string().describe('Message content'),
       },
       execute: async (args, ctx) => {
         const trace = createTraceID();
@@ -39,20 +39,20 @@ export function createToolDefs() {
         });
 
         const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'msg.execute' });
-        if (!currentAgent) return 'Error: 无法确定当前 agent';
+        if (!currentAgent) return 'Error: unable to identify current agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: 团队配置不存在';
+        if (!teamConfig) return 'Error: team config not found';
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: 无法确定项目目录';
+        if (!projectDir) return 'Error: unable to determine project directory';
         const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'msg.execute' });
-        if (!serveUrl) return 'Error: 团队 serve 未启动';
+        if (!serveUrl) return 'Error: team serve is not running';
 
         const isLeader = currentAgent.name === teamConfig.leader;
         const isBroadcast = !args.who || args.who === 'all';
 
-        if (isBroadcast && !isLeader) return 'Error: 只有 leader 才能广播';
+        if (isBroadcast && !isLeader) return 'Error: only the leader can broadcast';
 
         if (isBroadcast) {
           // 广播
@@ -63,11 +63,11 @@ export function createToolDefs() {
 
         // 单点发送
         if (args.who === 'boss') {
-          return 'Error: boss 在同一会话中，直接回复即可，不需要用 msg。';
+          return 'Error: boss is in your session — reply directly in your output, no need to use msg.';
         }
 
         if (!isAgentInTeam(currentAgent.team, args.who)) {
-          return `Error: 团队里没有 "${args.who}"，可选: ${teamConfig.agents.join(', ')}`;
+          return `Error: "${args.who}" is not in the team. Available agents: ${teamConfig.agents.join(', ')}`;
         }
 
         const msgPreview = args.message.slice(0, 30) + (args.message.length > 30 ? '...' : '');
@@ -87,28 +87,28 @@ export function createToolDefs() {
 
     command: {
       description:
-        'Leader 专用指令。action: status（查看状态）、free（让人休息）、redirect（切换目录）',
+        'Leader-only commands for team management. Actions: status (view status), free (release agent), redirect (change working directory).',
       args: {
-        action: tool.schema.string().describe('指令：status、free、redirect'),
-        who: tool.schema.string().optional().describe('目标成员（status 时可选）'),
-        cwd: tool.schema.string().optional().describe('工作目录（redirect 时用）'),
-        alias: tool.schema.string().optional().describe('实例别名'),
+        action: tool.schema.string().describe('Action: status, free, or redirect'),
+        who: tool.schema.string().optional().describe('Target agent (optional for status)'),
+        cwd: tool.schema.string().optional().describe('Working directory (for redirect)'),
+        alias: tool.schema.string().optional().describe('Instance alias'),
       },
       execute: async (args, ctx) => {
         const currentAgent = await getCurrentAgent(ctx.sessionID);
-        if (!currentAgent) return 'Error: 无法确定当前 agent';
+        if (!currentAgent) return 'Error: unable to identify current agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: 团队配置不存在';
+        if (!teamConfig) return 'Error: team config not found';
 
         if (currentAgent.name !== teamConfig.leader) {
-          return `Error: 只有 ${teamConfig.leader} 才能使用 command`;
+          return `Error: only ${teamConfig.leader} can use command`;
         }
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: 无法确定项目目录';
+        if (!projectDir) return 'Error: unable to determine project directory';
         const serveUrl = getServeUrl(currentAgent.team, projectDir);
-        if (!serveUrl) return 'Error: 团队 serve 未启动';
+        if (!serveUrl) return 'Error: team serve is not running';
 
         let who = args.who;
         let alias = args.alias;
@@ -123,10 +123,10 @@ export function createToolDefs() {
           return getStatus(currentAgent.team, projectDir, serveUrl, who);
         }
 
-        if (!who) return 'Error: 请指定 who 参数';
+        if (!who) return 'Error: "who" parameter is required';
 
         if (!isAgentInTeam(currentAgent.team, who)) {
-          return `Error: 团队里没有 "${who}"，可选: ${teamConfig.agents.join(', ')}`;
+          return `Error: "${who}" is not in the team. Available agents: ${teamConfig.agents.join(', ')}`;
         }
 
         // FREE
@@ -136,46 +136,46 @@ export function createToolDefs() {
 
         // REDIRECT
         if (args.action === 'redirect') {
-          if (!args.cwd) return 'Error: redirect 需要 cwd 参数';
-          if (!fs.existsSync(args.cwd)) return `Error: 目录不存在 - ${args.cwd}`;
+          if (!args.cwd) return 'Error: redirect requires "cwd" parameter';
+          if (!fs.existsSync(args.cwd)) return `Error: directory not found - ${args.cwd}`;
           return redirectAgent(currentAgent.team, projectDir, who, args.cwd, serveUrl, { alias });
         }
 
-        return `Error: 未知指令 "${args.action}"，可用: status, free, redirect`;
+        return `Error: unknown action "${args.action}". Available: status, free, redirect`;
       },
     },
 
     taskboard: {
       description:
-        '任务管理。create（创建任务，仅 leader）、done（完成任务）、list（查看列表）',
+        'Task management. Actions: create (leader only), done (mark complete), list (view all tasks).',
       args: {
-        action: tool.schema.string().describe('指令：create、done、list'),
-        title: tool.schema.string().optional().describe('任务标题（create 时必填）'),
-        description: tool.schema.string().optional().describe('任务描述（create 时可选）'),
-        assignee: tool.schema.string().optional().describe('分配给谁（create 时必填）'),
-        depends_on: tool.schema.array(tool.schema.number()).optional().describe('依赖任务 ID 数组（create 时可选）'),
-        id: tool.schema.number().optional().describe('任务 ID（done 时必填）'),
+        action: tool.schema.string().describe('Action: create, done, or list'),
+        title: tool.schema.string().optional().describe('Task title (required for create)'),
+        description: tool.schema.string().optional().describe('Task description (optional for create)'),
+        assignee: tool.schema.string().optional().describe('Assignee agent name (required for create)'),
+        depends_on: tool.schema.array(tool.schema.number()).optional().describe('Dependency task IDs (optional for create)'),
+        id: tool.schema.number().optional().describe('Task ID (required for done)'),
       },
       execute: async (args, ctx) => {
         const trace = createTraceID();
         const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'task.execute' });
-        if (!currentAgent) return 'Error: 无法确定当前 agent';
+        if (!currentAgent) return 'Error: unable to identify current agent';
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: 团队配置不存在';
+        if (!teamConfig) return 'Error: team config not found';
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: 无法确定项目目录';
+        if (!projectDir) return 'Error: unable to determine project directory';
         const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'task.execute' });
-        if (!serveUrl) return 'Error: 团队 serve 未启动';
+        if (!serveUrl) return 'Error: team serve is not running';
 
         // CREATE
         if (args.action === 'create') {
           if (currentAgent.name !== teamConfig.leader) {
-            return `Error: 只有 ${teamConfig.leader} 才能创建任务`;
+            return `Error: only ${teamConfig.leader} can create tasks`;
           }
-          if (!args.title) return 'Error: create 需要 title 参数';
-          if (!args.assignee) return 'Error: create 需要 assignee 参数';
+          if (!args.title) return 'Error: create requires "title" parameter';
+          if (!args.assignee) return 'Error: create requires "assignee" parameter';
 
           const result = await createTask({
             teamName: currentAgent.team, projectDir, serveUrl,
@@ -188,18 +188,18 @@ export function createToolDefs() {
 
           if (!result.ok) return `Error: ${result.error}`;
 
-          let response = `任务 #${result.task.id} 已创建：「${result.task.title}」→ ${result.task.assignee}`;
+          let response = `Task #${result.task.id} created: "${result.task.title}" → ${result.task.assignee}`;
           if (result.triggered && result.triggered.length > 0) {
-            response += `\n已通知：${result.triggered.join(', ')}`;
+            response += `\nNotified: ${result.triggered.join(', ')}`;
           } else if (result.task.dependsOn.length > 0) {
-            response += `\n等待依赖：${result.task.dependsOn.map(id => '#' + id).join(', ')}`;
+            response += `\nWaiting on: ${result.task.dependsOn.map(id => '#' + id).join(', ')}`;
           }
           return response;
         }
 
         // DONE
         if (args.action === 'done') {
-          if (args.id == null) return 'Error: done 需要 id 参数';
+          if (args.id == null) return 'Error: done requires "id" parameter';
 
           const result = await completeTask({
             teamName: currentAgent.team, projectDir, serveUrl,
@@ -210,9 +210,9 @@ export function createToolDefs() {
 
           if (!result.ok) return `Error: ${result.error}`;
 
-          let response = `任务 #${result.task.id}「${result.task.title}」已完成`;
+          let response = `Task #${result.task.id} "${result.task.title}" completed`;
           if (result.triggered.length > 0) {
-            response += `\n已触发下游：\n${result.triggered.join('\n')}`;
+            response += `\nTriggered downstream:\n${result.triggered.join('\n')}`;
           }
           return response;
         }
@@ -220,17 +220,17 @@ export function createToolDefs() {
         // LIST
         if (args.action === 'list') {
           const tasks = listTasks(currentAgent.team, projectDir);
-          if (tasks.length === 0) return '暂无任务';
+          if (tasks.length === 0) return 'No tasks';
 
           return tasks.map(t => {
             const status = t.status === 'done' ? '✓' : '⏳';
-            const deps = t.dependsOn.length > 0 ? ` (依赖 ${t.dependsOn.map(id => '#' + id).join(',')})` : '';
+            const deps = t.dependsOn.length > 0 ? ` (depends on ${t.dependsOn.map(id => '#' + id).join(',')})` : '';
             const desc = t.description ? `\n   ${t.description}` : '';
             return `#${t.id} ${status} ${t.title} → ${t.assignee}${deps}${desc}`;
           }).join('\n');
         }
 
-        return `Error: 未知指令 "${args.action}"，可用: create, done, list`;
+        return `Error: unknown action "${args.action}". Available: create, done, list`;
       },
     },
   };

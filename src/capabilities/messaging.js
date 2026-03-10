@@ -212,31 +212,31 @@ function formatTeamPrompt(teamConfig, currentAgentName) {
  */
 function getCollaborationRules() {
   return `<collaboration-rules>
-## 团队协作规则
+## Team Collaboration Rules
 
-### 消息来源识别
-- \`[from xxx]\` 前缀表示消息来源
-- \`[from boss]\` = 老板直接指示，优先级最高
-- \`[from <agent>]\` = 来自其他 agent（如 architect、developer 等）
+### Message Sources
+- \`[from xxx]\` prefix identifies the sender
+- \`[from boss]\` = direct instruction from the boss, highest priority
+- \`[from <agent>]\` = message from another agent (e.g., architect, developer)
 
-### 通信方式
-- **直接输出文字对方看不到**，必须用 \`msg\` 工具
-- 收到 \`[from agent]\` 消息后，必须用 \`msg\` 回复对方才能看到
+### Communication
+- **Your text output is invisible to other agents** — use the \`msg\` tool to communicate
+- When you receive \`[from <agent>]\`, reply with \`msg\` so they can see your response
 
-### Boss 消息（重要）
-- 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中，不是 agent）
-- **绝对禁止** \`msg(who="boss", ...)\`，msg 只能发给团队 agent
-- boss 能直接看到你的输出，不需要任何工具
+### Boss Messages (IMPORTANT)
+- When you receive \`[from boss]\`, **reply directly in your output** — boss is in your session, not an agent
+- **NEVER** use \`msg(who="boss", ...)\` — msg is only for team agents
+- Boss can see your output directly, no tool needed
 
-### 任务汇报（重要）
-- **任务完成后必须用 \`msg\` 向任务分配者汇报结果**
-- 汇报内容：完成了什么、关键产出、是否有遗留问题
-- 不汇报 = 对方不知道你完成了，协作链断裂
+### Task Reporting (IMPORTANT)
+- **After completing a task, use \`msg\` to report results to whoever assigned it**
+- Include: what was done, key outputs, any remaining issues
+- No report = the assigner doesn't know you finished, collaboration breaks
 
-### 任务系统
-- 收到 \`[task #N]\` 开头的消息表示你有新任务已就绪，按任务要求开始工作
-- 完成后调 \`taskboard(action="done", id=N)\` 标记完成，系统会自动通知下游
-- 用 \`taskboard(action="list")\` 查看所有任务及状态
-- 任务完成标记后不需要额外用 msg 汇报（系统自动处理流转）
+### Task System
+- A message starting with \`[task #N]\` means you have a new task ready — start working on it
+- When done, call \`taskboard(action="done", id=N)\` to mark complete — the system auto-notifies downstream
+- Use \`taskboard(action="list")\` to view all tasks and their status
+- After marking a task done, no extra msg report is needed (system handles flow automatically)
 </collaboration-rules>`;
 }
