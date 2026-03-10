@@ -170,8 +170,9 @@ if (hub) {
     });
 
     await checkAsync('P0: 投递消息', async () => {
-      const result = await api.deliver('architect', '你好 architect', { from: 'pm' });
-      // 投递不应失败
+      const result = await api.deliver({ from: 'pm', to: 'architect', message: '你好 architect' });
+      // 投递不应失败，且应返回 delivered 标志
+      if (!result || !result.delivered) throw new Error(`投递未成功: ${JSON.stringify(result)}`);
     });
 
     await checkAsync('P0: 拉取消息 — 收到投递的消息', async () => {
@@ -194,7 +195,7 @@ if (hub) {
 
     if (api.broadcast) {
       await checkAsync('P0: 广播消息 — 所有 agent 收到', async () => {
-        await api.broadcast('全体通知', { from: 'pm', team: 'test' });
+        await api.broadcast({ from: 'pm', message: '全体通知', agents: ['pm', 'architect', 'developer'] });
         const archMsgs = await api.pull('architect');
         const devMsgs = await api.pull('developer');
         const archArr = Array.isArray(archMsgs) ? archMsgs : (archMsgs?.messages || []);
@@ -215,9 +216,8 @@ if (hub) {
 
       await checkAsync('P0: 注销后投递 — 应失败或排队', async () => {
         try {
-          const result = await api.deliver('architect', '投递给已注销的 agent');
-          // 可能返回错误，也可能排队等待重新注册
-          // 不崩溃就行
+          const result = await api.deliver({ from: 'pm', to: 'architect', message: '投递给已注销的 agent' });
+          // 可能返回 delivered:true（排队等重连）或 delivered:false — 不崩溃就行
         } catch (err) {
           // 抛异常也是合理的拒绝方式
         }
@@ -261,11 +261,17 @@ if (mcp) {
     if (!src.match(/taskboard|task/i)) throw new Error('mcp.js 中未找到 taskboard 工具引用');
   });
 
-  check('P0: mcp 模块使用 @modelcontextprotocol/server', () => {
+  check('P0: mcp 模块接收 McpServer 实例（依赖注入）', () => {
     const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
     const src = fs.readFileSync(mcpPath, 'utf8');
-    if (!src.includes('@modelcontextprotocol')) {
-      throw new Error('mcp.js 未引用 @modelcontextprotocol 包');
+    // mcp.js 通过依赖注入接收 McpServer 实例（参数名 mcpServer），
+    // 而非直接 import @modelcontextprotocol 包 — 这是合理的设计
+    if (!src.includes('mcpServer') && !src.includes('McpServer')) {
+      throw new Error('mcp.js 未引用 McpServer 实例');
+    }
+    // 验证它调用了 registerTool
+    if (!src.includes('registerTool')) {
+      throw new Error('mcp.js 未调用 registerTool');
     }
   });
 
@@ -298,7 +304,8 @@ if (routes) {
   check('P0: routes 源码包含核心端点', () => {
     const routesPath = path.resolve(import.meta.dirname, '../src/server/routes.js');
     const src = fs.readFileSync(routesPath, 'utf8');
-    const endpoints = ['/status', '/tasks', '/msg'];
+    // REST API 使用 /api 前缀路由：register, unregister, messages, status, tasks
+    const endpoints = ['/api/status', '/api/tasks', '/api/register', '/api/messages'];
     const missing = endpoints.filter(ep => !src.includes(ep));
     if (missing.length > 0) {
       throw new Error(`routes.js 缺少端点: ${missing.join(', ')}`);
