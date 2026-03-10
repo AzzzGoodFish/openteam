@@ -92,7 +92,7 @@ export function createDashboard(teamName) {
     height: '100%-33',
     tags: true,
     border: { type: 'line' },
-    label: ' 消息流 (↑↓选择 Enter展开 q退出) ',
+    label: ' 消息流 (↑↓选择 Enter展开 Tab切换 q退出) ',
     scrollable: true,
     keys: true,
     vi: true,
@@ -115,7 +115,7 @@ export function createDashboard(teamName) {
     height: 12,
     tags: true,
     border: { type: 'line' },
-    label: ' 任务看板 (↑↓选择 Enter详情) ',
+    label: ' 任务看板 (↑↓选择 Enter详情 Tab切换) ',
     scrollable: true,
     keys: true,
     vi: true,
@@ -159,6 +159,24 @@ export function createDashboard(teamName) {
   screen.append(messageStream);
   screen.append(taskBoard);
   screen.append(detailBox);
+
+  // Tab 焦点切换（消息流 ↔ 任务看板）
+  const focusable = [messageStream, taskBoard];
+  let focusIndex = 0;
+
+  screen.key(['tab'], () => {
+    if (!detailBox.hidden) return; // 弹窗打开时不切换
+    focusIndex = (focusIndex + 1) % focusable.length;
+    focusable[focusIndex].focus();
+    screen.render();
+  });
+
+  screen.key(['S-tab'], () => {
+    if (!detailBox.hidden) return;
+    focusIndex = (focusIndex - 1 + focusable.length) % focusable.length;
+    focusable[focusIndex].focus();
+    screen.render();
+  });
 
   // 全局退出
   screen.key(['q', 'C-c'], () => {
