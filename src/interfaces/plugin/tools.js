@@ -17,6 +17,15 @@ function createTraceID() {
   return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * 记录工具错误并返回错误字符串
+ * 基础设施错误（agent 识别失败、serve 不可用等）用 error 级别，始终写入日志文件
+ */
+function toolError(toolName, message, data = {}) {
+  log.error(`${toolName}: ${message}`, data);
+  return `Error: ${message}`;
+}
+
 export function createToolDefs() {
   return {
     msg: {
@@ -39,15 +48,15 @@ export function createToolDefs() {
         });
 
         const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'msg.execute' });
-        if (!currentAgent) return 'Error: unable to identify current agent';
+        if (!currentAgent) return toolError('msg', 'unable to identify current agent', { trace, sessionID: ctx.sessionID });
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: team config not found';
+        if (!teamConfig) return toolError('msg', 'team config not found', { trace, team: currentAgent.team });
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: unable to determine project directory';
+        if (!projectDir) return toolError('msg', 'unable to determine project directory', { trace, agent: currentAgent.full });
         const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'msg.execute' });
-        if (!serveUrl) return 'Error: team serve is not running';
+        if (!serveUrl) return toolError('msg', 'team serve is not running', { trace, agent: currentAgent.full, team: currentAgent.team, projectDir });
 
         const isLeader = currentAgent.name === teamConfig.leader;
         const isBroadcast = !args.who || args.who === 'all';
@@ -95,20 +104,21 @@ export function createToolDefs() {
         alias: tool.schema.string().optional().describe('Instance alias'),
       },
       execute: async (args, ctx) => {
+        const trace = createTraceID();
         const currentAgent = await getCurrentAgent(ctx.sessionID);
-        if (!currentAgent) return 'Error: unable to identify current agent';
+        if (!currentAgent) return toolError('command', 'unable to identify current agent', { trace, sessionID: ctx.sessionID });
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: team config not found';
+        if (!teamConfig) return toolError('command', 'team config not found', { trace, team: currentAgent.team });
 
         if (currentAgent.name !== teamConfig.leader) {
           return `Error: only ${teamConfig.leader} can use command`;
         }
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: unable to determine project directory';
-        const serveUrl = getServeUrl(currentAgent.team, projectDir);
-        if (!serveUrl) return 'Error: team serve is not running';
+        if (!projectDir) return toolError('command', 'unable to determine project directory', { trace, agent: currentAgent.full });
+        const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'command.execute' });
+        if (!serveUrl) return toolError('command', 'team serve is not running', { trace, agent: currentAgent.full, team: currentAgent.team, projectDir });
 
         let who = args.who;
         let alias = args.alias;
@@ -159,15 +169,15 @@ export function createToolDefs() {
       execute: async (args, ctx) => {
         const trace = createTraceID();
         const currentAgent = await getCurrentAgent(ctx.sessionID, 2000, { trace, reason: 'task.execute' });
-        if (!currentAgent) return 'Error: unable to identify current agent';
+        if (!currentAgent) return toolError('taskboard', 'unable to identify current agent', { trace, sessionID: ctx.sessionID });
 
         const teamConfig = loadTeamConfig(currentAgent.team);
-        if (!teamConfig) return 'Error: team config not found';
+        if (!teamConfig) return toolError('taskboard', 'team config not found', { trace, team: currentAgent.team });
 
         const projectDir = currentAgent.projectDir;
-        if (!projectDir) return 'Error: unable to determine project directory';
+        if (!projectDir) return toolError('taskboard', 'unable to determine project directory', { trace, agent: currentAgent.full });
         const serveUrl = getServeUrl(currentAgent.team, projectDir, { trace, reason: 'task.execute' });
-        if (!serveUrl) return 'Error: team serve is not running';
+        if (!serveUrl) return toolError('taskboard', 'team serve is not running', { trace, agent: currentAgent.full, team: currentAgent.team, projectDir });
 
         // CREATE
         if (args.action === 'create') {
