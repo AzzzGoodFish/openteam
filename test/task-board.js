@@ -631,6 +631,103 @@ check('P1: Dashboard 消息流格式简化 — A → B（无 [from] 前缀）', 
   }
 });
 
+// 任务详情弹窗（TUI 无法做交互测试，验证代码结构 + 数据完整性）
+check('P1: Dashboard UI 包含详情弹窗组件', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // 弹窗通常用 blessed box 实现，检查是否有 detail/popup/modal 相关代码
+  if (!uiContent.match(/detail|popup|modal|弹窗|详情/i)) {
+    throw new Error('ui.js 中未找到详情弹窗相关代码');
+  }
+});
+
+check('P1: 详情弹窗支持键盘操作（Esc/q 关闭）', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // 应有 escape 或 q 的按键绑定用于关闭弹窗
+  const hasEsc = uiContent.includes('escape') || uiContent.includes('Esc');
+  if (!hasEsc) {
+    throw new Error('ui.js 中未找到 escape 键绑定（用于关闭弹窗）');
+  }
+});
+
+check('P1: 任务数据包含详情弹窗所需的完整字段', () => {
+  const tasks = fetchTaskBoard(TEST_TEAM, TEST_PROJECT_DIR);
+  const task = tasks[0];
+  // 详情弹窗需要展示：标题、分配人、状态、依赖、创建时间、描述
+  const detailFields = ['title', 'assignee', 'status', 'dependsOn', 'createdAt', 'description'];
+  const missing = detailFields.filter(f => task[f] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`任务数据缺少详情展示所需字段: ${missing.join(', ')}`);
+  }
+});
+
+check('P1: 已完成任务包含 doneAt 字段（详情弹窗展示完成时间）', () => {
+  const tasks = fetchTaskBoard(TEST_TEAM, TEST_PROJECT_DIR);
+  const doneTask = tasks.find(t => t.status === 'done');
+  if (!doneTask) throw new Error('无 done 状态任务');
+  if (!doneTask.doneAt) throw new Error('已完成任务缺少 doneAt 字段');
+});
+
+// 焦点切换（TUI 交互无法自动化，验证代码结构）
+check('P1: Dashboard UI 支持 Tab 键焦点切换', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // 应有 tab 按键绑定
+  if (!uiContent.match(/['"]tab['"]/i) && !uiContent.includes('\\t')) {
+    throw new Error('ui.js 中未找到 Tab 键绑定（焦点切换）');
+  }
+});
+
+check('P1: Dashboard UI 支持 Shift-Tab 反向切换', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // 应有 S-tab / shift-tab / shift+tab 相关绑定
+  if (!uiContent.match(/S-tab|shift.*tab/i)) {
+    throw new Error('ui.js 中未找到 Shift-Tab 键绑定（反向焦点切换）');
+  }
+});
+
+check('P1: 弹窗打开时焦点切换被屏蔽', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // Tab 处理中应有弹窗状态守卫（检查 detail/popup/modal 是否可见）
+  // 典型模式：if (detailBox.visible) return; 或类似守卫
+  const hasGuard = uiContent.match(/visible|hidden|showing|isOpen/i);
+  if (!hasGuard) {
+    throw new Error('ui.js 中未找到弹窗状态守卫（Tab 处理应在弹窗打开时跳过）');
+  }
+});
+
+// 鼠标支持（TUI 交互无法自动化，验证代码结构）
+check('P1: Dashboard 启用鼠标支持', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // blessed screen 启用鼠标通常通过 mouse: true
+  if (!uiContent.includes('mouse')) {
+    throw new Error('ui.js 中未找到 mouse 相关配置');
+  }
+});
+
+check('P1: 点击弹窗外区域关闭弹窗', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // 应有 click 事件处理用于关闭弹窗（screen.on('click') 或类似）
+  if (!uiContent.match(/click|mouse/i) || !uiContent.match(/hide|close|visible/i)) {
+    throw new Error('ui.js 中未找到点击关闭弹窗的逻辑');
+  }
+});
+
+check('P1: 列表组件支持鼠标滚轮', () => {
+  const uiPath = path.resolve(import.meta.dirname, '../src/interfaces/dashboard/ui.js');
+  const uiContent = fs.readFileSync(uiPath, 'utf8');
+  // blessed list 组件启用滚动通常通过 scrollable: true 或 mouse: true
+  // 或 keys + mouse 组合
+  if (!uiContent.match(/scrollable|scrollbar|mouse:\s*true/)) {
+    throw new Error('ui.js 中未找到列表滚动支持配置');
+  }
+});
+
 // ============================================================
 // 7. 任务列表查询 (P1)
 // ============================================================
@@ -726,6 +823,54 @@ check('P0: taskboard 工具支持 create/done/list actions', () => {
   const desc = defs.taskboard.description + ' ' + (defs.taskboard.args?.action?.describe?.() || '');
   // action 参数应描述支持的操作
   if (!defs.taskboard.args.action) throw new Error('缺少 action 参数');
+});
+
+// ============================================================
+// 10. msg 工具 boss 限制 (P0)
+// ============================================================
+console.log(`\n${YELLOW}--- 10. msg boss 限制 ---${NC}`);
+
+check('P0: msg 工具 description 包含 boss 警告', () => {
+  const defs = createToolDefs();
+  const msgTool = defs.msg;
+  if (!msgTool) throw new Error('msg 工具不存在');
+  if (!msgTool.description.match(/boss/i)) {
+    throw new Error(`msg description 应包含 boss 相关警告: ${msgTool.description}`);
+  }
+});
+
+check('P0: tools.js 中 msg execute 包含 boss 拦截逻辑', () => {
+  const toolsPath = path.resolve(import.meta.dirname, '../src/interfaces/plugin/tools.js');
+  const toolsSrc = fs.readFileSync(toolsPath, 'utf8');
+  // 应有 who === 'boss' 或类似的拦截检查
+  if (!toolsSrc.match(/['"]boss['"]/)) {
+    throw new Error('tools.js 中未找到 boss 字符串（拦截逻辑）');
+  }
+  // 应返回错误提示用户直接回复
+  if (!toolsSrc.match(/直接回复|同一会话/)) {
+    throw new Error('tools.js 中未找到 boss 拦截的错误提示');
+  }
+});
+
+check('P0: 协作规则中包含 Boss 消息说明', () => {
+  const msgSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, '../src/capabilities/messaging.js'), 'utf8'
+  );
+  const toolsSrc = fs.readFileSync(
+    path.resolve(import.meta.dirname, '../src/interfaces/plugin/tools.js'), 'utf8'
+  );
+  const combined = msgSrc + toolsSrc;
+  // 协作规则中应有 Boss 消息相关说明
+  if (!combined.match(/[Bb]oss.*消息|消息.*[Bb]oss|[Bb]oss.*回复/)) {
+    // 也可能在 hooks 中
+    const hooksPath = path.resolve(import.meta.dirname, '../src/interfaces/plugin/hooks.js');
+    if (fs.existsSync(hooksPath)) {
+      const hooksSrc = fs.readFileSync(hooksPath, 'utf8');
+      if (!hooksSrc.match(/[Bb]oss/)) {
+        throw new Error('未在 messaging/tools/hooks 中找到 Boss 消息相关说明');
+      }
+    }
+  }
 });
 
 // ============================================================

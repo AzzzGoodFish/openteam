@@ -238,10 +238,5 @@ function getCollaborationRules() {
 - 完成后调 \`taskboard(action="done", id=N)\` 标记完成，系统会自动通知下游
 - 用 \`taskboard(action="list")\` 查看所有任务及状态
 - 任务完成标记后不需要额外用 msg 汇报（系统自动处理流转）
-
-### 记忆系统
-- 系统会在对话结束后**自动巩固**有价值的信息到长期记忆，你无需刻意记录
-- \`<memory>\` 中的 index 类型记忆显示了你所有笔记的摘要，需要详情时用 \`recall\` 查阅
-- 用 \`review\` 和 \`reread\` 可以回顾历史对话
 </collaboration-rules>`;
 }
