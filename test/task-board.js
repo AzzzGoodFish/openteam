@@ -846,8 +846,8 @@ check('P0: tools.js 中 msg execute 包含 boss 拦截逻辑', () => {
   if (!toolsSrc.match(/['"]boss['"]/)) {
     throw new Error('tools.js 中未找到 boss 字符串（拦截逻辑）');
   }
-  // 应返回错误提示用户直接回复
-  if (!toolsSrc.match(/直接回复|同一会话/)) {
+  // 应返回错误提示用户直接回复（中文或英文）
+  if (!toolsSrc.match(/直接回复|同一会话|reply directly|in your session/)) {
     throw new Error('tools.js 中未找到 boss 拦截的错误提示');
   }
 });

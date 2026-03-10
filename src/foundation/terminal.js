@@ -3,6 +3,7 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 import { createLogger } from './logger.js';
@@ -491,6 +492,92 @@ export function listPanes(mux, sessionName) {
     log.warn('listPanes failed', { mux, sessionName, error: err.message });
     return [];
   }
+}
+
+/**
+ * 向指定 pane 发送按键序列（文本 + Enter）
+ *
+ * 用于 wrapper 向 CLI pane 注入用户消息。
+ * tmux: send-keys -t "session:paneId" "text" Enter
+ * zellij: TODO — 阶段 3 确定（wrapper 在 pane 内部时可用 zellij action write-chars）
+ *
+ * @param {'tmux'|'zellij'} mux
+ * @param {string} sessionName
+ * @param {string} paneId - tmux pane id 或 zellij pane name
+ * @param {string} text - 要发送的文本
+ * @returns {boolean} 是否成功
+ */
+export function sendKeys(mux, sessionName, paneId, text) {
+  try {
+    if (mux === 'tmux') {
+      const env = cleanMuxEnv();
+      const target = `${sessionName}:${paneId}`;
+      // 用 load-buffer + paste-buffer 避免 shell 注入（text 可能含 $()、反引号等）
+      const tmpFile = path.join(os.tmpdir(), `openteam-sendkeys-${Date.now()}.txt`);
+      fs.writeFileSync(tmpFile, text);
+      try {
+        execSync(`tmux load-buffer "${tmpFile}"`, { stdio: 'ignore', env });
+        execSync(`tmux paste-buffer -t "${target}"`, { stdio: 'ignore', env });
+        execSync(`tmux send-keys -t "${target}" Enter`, { stdio: 'ignore', env });
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch {}
+      }
+      return true;
+    } else if (mux === 'zellij') {
+      // TODO: zellij pane targeting 待阶段 3 确定
+      // wrapper 在 pane 内部时可直接 zellij action write-chars，无需外部 target
+      log.warn('sendKeys not yet supported for zellij');
+      return false;
+    }
+  } catch (err) {
+    log.warn('sendKeys failed', { mux, sessionName, paneId, error: err.message });
+    return false;
+  }
+  return false;
+}
+
+/**
+ * 向指定 pane 粘贴多行文本（bracketed paste 模式）
+ *
+ * 用于注入多行消息，防止中间换行触发 CLI 提交。
+ * tmux: 用 send-keys -l 发送 literal 字符，包裹 bracketed paste 转义序列
+ * zellij: TODO — 同 sendKeys
+ *
+ * @param {'tmux'|'zellij'} mux
+ * @param {string} sessionName
+ * @param {string} paneId
+ * @param {string} text - 要粘贴的多行文本
+ * @returns {boolean} 是否成功
+ */
+export function pasteText(mux, sessionName, paneId, text) {
+  try {
+    if (mux === 'tmux') {
+      const env = cleanMuxEnv();
+      const target = `${sessionName}:${paneId}`;
+      // bracketed paste: \x1b[200~ 开始，\x1b[201~ 结束
+      // 终端识别后不会逐行执行，整体作为粘贴输入
+      // 用 load-buffer + paste-buffer 避免 shell 注入
+      const content = `\x1b[200~${text}\x1b[201~`;
+      const tmpFile = path.join(os.tmpdir(), `openteam-paste-${Date.now()}.txt`);
+      fs.writeFileSync(tmpFile, content);
+      try {
+        execSync(`tmux load-buffer "${tmpFile}"`, { stdio: 'ignore', env });
+        execSync(`tmux paste-buffer -t "${target}"`, { stdio: 'ignore', env });
+        execSync(`tmux send-keys -t "${target}" Enter`, { stdio: 'ignore', env });
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch {}
+      }
+      return true;
+    } else if (mux === 'zellij') {
+      // TODO: zellij pane targeting 待阶段 3 确定
+      log.warn('pasteText not yet supported for zellij');
+      return false;
+    }
+  } catch (err) {
+    log.warn('pasteText failed', { mux, sessionName, paneId, error: err.message });
+    return false;
+  }
+  return false;
 }
 
 /**

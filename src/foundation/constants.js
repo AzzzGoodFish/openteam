@@ -5,17 +5,23 @@ import crypto from 'crypto';
 const homeDir = os.homedir();
 
 export const PATHS = {
+  // v1 遗留路径（其他模块仍在引用，待后续阶段清理）
   OPENCODE_DIR: path.join(homeDir, '.opencode'),
   AGENTS_DIR: path.join(homeDir, '.opencode/agents'),
+
+  // v2 路径
   OPENTEAM_DIR: path.join(homeDir, '.openteam'),
   SETTINGS: path.join(homeDir, '.openteam', 'settings.json'),
+  AGENTS_DEFS_DIR: path.join(homeDir, '.openteam', 'agents'),   // agent 定义（所有团队共享）
+  SKILLS_DIR: path.join(homeDir, '.openteam', 'skills'),         // skill 定义
+  TEAMS_DIR: path.join(homeDir, '.openteam', 'teams'),           // 团队配置 + 运行时状态
 };
 
 export const FILES = {
   TEAM_CONFIG: 'team.json',
   STATE: '.state.json',
-  RUNTIME: '.runtime.json',
-  ACTIVE_SESSIONS: '.active-sessions.json',
+  RUNTIME: '.runtime.json',              // v1 遗留，迁移兼容用
+  ACTIVE_SESSIONS: '.active-sessions.json', // v2: 待移除 — agent 在线状态由 server hub 内存管理
   TASKS: '.tasks.json',
 };
 
@@ -26,7 +32,7 @@ export const DEFAULTS = {
 };
 
 export function getTeamDir(teamName) {
-  return path.join(PATHS.AGENTS_DIR, teamName);
+  return path.join(PATHS.TEAMS_DIR, teamName);
 }
 
 /**
@@ -38,10 +44,10 @@ export function projectDirHash(projectDir) {
 
 /**
  * 获取团队的项目级状态目录（纯计算，不创建）
- * 路径: ~/.opencode/agents/<teamName>/<hash>/
+ * 路径: ~/.openteam/teams/<teamName>/<hash>/
  */
 export function getTeamStateDir(teamName, projectDir) {
-  return path.join(PATHS.AGENTS_DIR, teamName, projectDirHash(projectDir));
+  return path.join(PATHS.TEAMS_DIR, teamName, projectDirHash(projectDir));
 }
 
 /**

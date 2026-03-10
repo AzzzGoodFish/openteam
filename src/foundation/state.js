@@ -65,6 +65,9 @@ function saveState(teamName, projectDir, state) {
 /**
  * 统一 runtime 格式（兼容旧格式 { pid, host, port } → 新格式 { daemon, serve, ... }）
  * 所有消费者使用 normalized 字段，旧格式映射集中在此一处
+ *
+ * TODO v2: serve → server 命名迁移（servePid → serverPid, serveHost → serverHost, servePort → serverPort）
+ * 对应 openteam server 而非 opencode serve，待后续阶段统一修改以避免连锁变更
  */
 function normalizeRuntime(raw) {
   if (!raw) return null;
@@ -199,9 +202,12 @@ export async function findAvailablePort() {
 }
 
 // ─── Session 函数 ───────────────────────────────────────────
+// v2: 以下 session 函数待阶段 2 server hub 替代后移除
+// agent 在线状态将由 server hub 内存管理（wrapper 注册/注销），不再需要文件持久化
 
 /**
  * Load active sessions（读取时统一格式：每个 agent → [{ sessionId, cwd, ... }]）
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function loadActiveSessions(teamName, projectDir) {
   const state = loadState(teamName, projectDir);
@@ -220,6 +226,7 @@ export function loadActiveSessions(teamName, projectDir) {
 
 /**
  * Save active sessions（保留 runtime 字段）
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function saveActiveSessions(teamName, projectDir, sessions) {
   const state = loadState(teamName, projectDir);
@@ -230,6 +237,7 @@ export function saveActiveSessions(teamName, projectDir, sessions) {
 /**
  * Get all instances for an agent
  * Returns array of { sessionId, cwd, alias? }
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function getAgentInstances(teamName, projectDir, agentName) {
   const sessions = loadActiveSessions(teamName, projectDir);
@@ -239,6 +247,7 @@ export function getAgentInstances(teamName, projectDir, agentName) {
 /**
  * Find instance by cwd or alias
  * Returns { sessionId, cwd, alias? } or null
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function findInstance(teamName, projectDir, agentName, { cwd, alias }) {
   const instances = getAgentInstances(teamName, projectDir, agentName);
@@ -253,6 +262,7 @@ export function findInstance(teamName, projectDir, agentName, { cwd, alias }) {
 
 /**
  * Add or update an instance for an agent
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function addInstance(teamName, projectDir, agentName, { sessionId, cwd, alias }) {
   const sessions = loadActiveSessions(teamName, projectDir);
@@ -272,6 +282,7 @@ export function addInstance(teamName, projectDir, agentName, { sessionId, cwd, a
 
 /**
  * Remove an instance by cwd or alias
+ * @deprecated v2: 待 server hub 替代后移除
  */
 export function removeInstance(teamName, projectDir, agentName, { cwd, alias }) {
   const sessions = loadActiveSessions(teamName, projectDir);
@@ -347,11 +358,11 @@ export function listRunningInstances(teamName) {
  * 扫描所有团队的所有实例（含运行中和已停止的）
  */
 export function listAllInstances() {
-  if (!fs.existsSync(PATHS.AGENTS_DIR)) return [];
+  if (!fs.existsSync(PATHS.TEAMS_DIR)) return [];
   const results = [];
   let teamDirs;
   try {
-    teamDirs = fs.readdirSync(PATHS.AGENTS_DIR, { withFileTypes: true });
+    teamDirs = fs.readdirSync(PATHS.TEAMS_DIR, { withFileTypes: true });
   } catch { return []; }
 
   for (const teamEntry of teamDirs) {
