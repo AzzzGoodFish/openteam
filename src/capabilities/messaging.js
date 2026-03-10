@@ -223,6 +223,11 @@ function getCollaborationRules() {
 - **直接输出文字对方看不到**，必须用 \`msg\` 工具
 - 收到 \`[from agent]\` 消息后，必须用 \`msg\` 回复对方才能看到
 
+### Boss 消息（重要）
+- 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中，不是 agent）
+- **绝对禁止** \`msg(who="boss", ...)\`，msg 只能发给团队 agent
+- boss 能直接看到你的输出，不需要任何工具
+
 ### 任务汇报（重要）
 - **任务完成后必须用 \`msg\` 向任务分配者汇报结果**
 - 汇报内容：完成了什么、关键产出、是否有遗留问题
@@ -233,10 +238,6 @@ function getCollaborationRules() {
 - 完成后调 \`taskboard(action="done", id=N)\` 标记完成，系统会自动通知下游
 - 用 \`taskboard(action="list")\` 查看所有任务及状态
 - 任务完成标记后不需要额外用 msg 汇报（系统自动处理流转）
-
-### Boss 消息回复方式
-- 收到 \`[from boss]\` 时**直接回复**即可（boss 在同一会话中）
-- **禁止**用 \`msg(who="boss", ...)\`，boss 不是 agent
 
 ### 记忆系统
 - 系统会在对话结束后**自动巩固**有价值的信息到长期记忆，你无需刻意记录

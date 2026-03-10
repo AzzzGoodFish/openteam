@@ -21,7 +21,7 @@ export function createToolDefs() {
   return {
     msg: {
       description:
-        '发消息（异步，像发微信）。直接输出文字对方看不到，必须用 msg。收到 [from xxx] 消息后需用 msg 回复对方才能看到。Leader 可广播。',
+        '给团队 agent 发消息（异步，像发微信）。直接输出文字对方看不到，必须用 msg。收到 [from agent] 消息后需用 msg 回复对方才能看到。注意：收到 [from boss] 时直接回复即可，不要用 msg——boss 在同一会话中，不是 agent。Leader 可广播。',
       args: {
         who: tool.schema
           .string()
@@ -62,6 +62,10 @@ export function createToolDefs() {
         }
 
         // 单点发送
+        if (args.who === 'boss') {
+          return 'Error: boss 在同一会话中，直接回复即可，不需要用 msg。';
+        }
+
         if (!isAgentInTeam(currentAgent.team, args.who)) {
           return `Error: 团队里没有 "${args.who}"，可选: ${teamConfig.agents.join(', ')}`;
         }
