@@ -4,8 +4,10 @@
 
 import blessed from 'blessed';
 
-// 模块级变量：保存当前消息列表原始数据，供展开详情用
+// 模块级变量：保存当前列表原始数据，供展开详情用
 let _currentMessages = [];
+let _currentTasks = [];
+let _lastFocused = null;
 
 // Agent 颜色映射（按首次出现顺序轮转）
 const AGENT_COLORS = ['green', 'cyan', 'magenta', 'blue', 'yellow', 'red'];
@@ -105,16 +107,15 @@ export function createDashboard(teamName) {
     items: [],
   });
 
-  // 任务看板（钉在底部）
-  const taskBoard = blessed.box({
+  // 任务看板（钉在底部，可选中）
+  const taskBoard = blessed.list({
     bottom: 0,
     left: 0,
     width: '100%',
     height: 12,
-    content: '',
     tags: true,
     border: { type: 'line' },
-    label: ' 任务看板 ',
+    label: ' 任务看板 (↑↓选择 Enter详情) ',
     scrollable: true,
     keys: true,
     vi: true,
@@ -123,7 +124,10 @@ export function createDashboard(teamName) {
     style: {
       fg: 'white',
       border: { fg: 'blue' },
+      selected: { bg: 'blue', fg: 'white' },
+      item: { fg: 'white' },
     },
+    items: [],
   });
 
   // 消息详情弹窗（默认隐藏）
@@ -161,7 +165,7 @@ export function createDashboard(teamName) {
     if (!detailBox.hidden) {
       // 如果详情弹窗打开，先关闭弹窗
       detailBox.hide();
-      messageStream.focus();
+      (_lastFocused || messageStream).focus();
       screen.render();
       return;
     }
@@ -170,6 +174,7 @@ export function createDashboard(teamName) {
 
   // Enter 展开消息详情
   messageStream.on('select', (item, index) => {
+    _lastFocused = messageStream;
     const msg = _currentMessages[index];
     if (!msg) return;
 
@@ -184,6 +189,43 @@ export function createDashboard(teamName) {
       msg.fullContent || msg.content,
     ].join('\n');
 
+    detailBox.setLabel(' 消息详情 (Esc/q 关闭) ');
+    detailBox.setContent(detail);
+    detailBox.setScrollPerc(0);
+    detailBox.show();
+    detailBox.focus();
+    screen.render();
+  });
+
+  // Enter 展开任务详情
+  taskBoard.on('select', (item, index) => {
+    _lastFocused = taskBoard;
+    const task = _currentTasks[index];
+    if (!task) return;
+
+    const created = new Date(task.createdAt).toLocaleString('zh-CN', { hour12: false });
+    const doneAt = task.doneAt ? new Date(task.doneAt).toLocaleString('zh-CN', { hour12: false }) : '—';
+    const status = task.status === 'done' ? '{green-fg}已完成{/green-fg}' : '{yellow-fg}待处理{/yellow-fg}';
+    const deps = task.dependsOn.length > 0
+      ? task.dependsOn.map(id => '#' + id).join(', ')
+      : '无';
+
+    const detail = [
+      `{bold}任务 #${task.id}{/bold}`,
+      '',
+      `{bold}标题:{/bold}    ${task.title}`,
+      `{bold}分配人:{/bold}  {cyan-fg}${task.assignee}{/cyan-fg}`,
+      `{bold}状态:{/bold}    ${status}`,
+      `{bold}依赖:{/bold}    ${deps}`,
+      `{bold}创建时间:{/bold} ${created}`,
+      `{bold}完成时间:{/bold} ${doneAt}`,
+      '',
+      '{bold}描述:{/bold}',
+      '─'.repeat(60),
+      task.description || '{gray-fg}(无描述){/gray-fg}',
+    ].join('\n');
+
+    detailBox.setLabel(' 任务详情 (Esc/q 关闭) ');
     detailBox.setContent(detail);
     detailBox.setScrollPerc(0);
     detailBox.show();
@@ -194,7 +236,7 @@ export function createDashboard(teamName) {
   // Esc 关闭详情弹窗
   detailBox.key(['escape', 'q'], () => {
     detailBox.hide();
-    messageStream.focus();
+    (_lastFocused || messageStream).focus();
     screen.render();
   });
 
@@ -290,13 +332,15 @@ function formatActivity(agent) {
 /**
  * 更新任务看板
  */
-export function updateTaskBoard(box, tasks) {
-  if (!tasks || tasks.length === 0) {
-    box.setContent('{yellow-fg}暂无任务{/yellow-fg}');
+export function updateTaskBoard(listBox, tasks) {
+  _currentTasks = tasks || [];
+
+  if (_currentTasks.length === 0) {
+    listBox.setItems(['{yellow-fg}暂无任务{/yellow-fg}']);
     return;
   }
 
-  const lines = tasks.map(t => {
+  const items = _currentTasks.map(t => {
     const status = t.status === 'done'
       ? '{green-fg}✓{/green-fg}'
       : '{yellow-fg}⏳{/yellow-fg}';
@@ -307,7 +351,7 @@ export function updateTaskBoard(box, tasks) {
     let deps = '';
     if (t.status === 'pending' && t.dependsOn.length > 0) {
       const pendingDeps = t.dependsOn.filter(depId => {
-        const dep = tasks.find(d => d.id === depId);
+        const dep = _currentTasks.find(d => d.id === depId);
         return dep && dep.status !== 'done';
       });
       if (pendingDeps.length > 0) {
@@ -318,7 +362,7 @@ export function updateTaskBoard(box, tasks) {
     return `${id} ${status} ${title} ${assignee} ${deps}`;
   });
 
-  box.setContent(lines.join('\n'));
+  listBox.setItems(items);
 }
 
 /**
