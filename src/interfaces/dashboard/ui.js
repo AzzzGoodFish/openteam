@@ -29,6 +29,7 @@ export function createDashboard(teamName) {
   const screen = blessed.screen({
     smartCSR: true,
     fullUnicode: true,
+    mouse: true,
     title: `OpenTeam Dashboard - ${teamName}`,
   });
 
@@ -92,7 +93,7 @@ export function createDashboard(teamName) {
     height: '100%-33',
     tags: true,
     border: { type: 'line' },
-    label: ' 消息流 (↑↓选择 Enter展开 Tab切换 q退出) ',
+    label: ' 消息流 (点击/Enter展开 Tab切换 q退出) ',
     scrollable: true,
     keys: true,
     vi: true,
@@ -115,7 +116,7 @@ export function createDashboard(teamName) {
     height: 12,
     tags: true,
     border: { type: 'line' },
-    label: ' 任务看板 (↑↓选择 Enter详情 Tab切换) ',
+    label: ' 任务看板 (点击/Enter详情 Tab切换) ',
     scrollable: true,
     keys: true,
     vi: true,
@@ -256,6 +257,21 @@ export function createDashboard(teamName) {
     detailBox.hide();
     (_lastFocused || messageStream).focus();
     screen.render();
+  });
+
+  // 点击弹窗外区域关闭详情
+  screen.on('click', (mouse) => {
+    if (detailBox.hidden) return;
+    // 检查点击是否在 detailBox 范围外
+    const top = detailBox.atop;
+    const left = detailBox.aleft;
+    const bottom = top + detailBox.height;
+    const right = left + detailBox.width;
+    if (mouse.x < left || mouse.x >= right || mouse.y < top || mouse.y >= bottom) {
+      detailBox.hide();
+      (_lastFocused || messageStream).focus();
+      screen.render();
+    }
   });
 
   // 默认焦点在消息流
