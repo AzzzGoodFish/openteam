@@ -70,7 +70,12 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     started: new Date().toISOString(),
   });
 
-  // ── 2. 确保 agent/skill 软链接 ──
+  // ── 2. 读取 CLI 配置 ──
+  const cliConf = teamConfig.cli_config?.[cliType] || {};
+  const cliArgs = cliConf.args || [];
+  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
+
+  // ── 3. 确保 agent/skill 软链接 ──
   const { ensureLinks } = await import('./links.js');
   const linkResult = ensureLinks({ teamName, projectDir, cliType, agents, skipAgentLinks: keepDefaultSP });
   if (!linkResult.ok) {
@@ -86,10 +91,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     console.log(`已创建 ${linkResult.linked.length} 个链接`);
   }
 
-  // ── 3. wrapper 环境配置 ──
-  const cliConf = teamConfig.cli_config?.[cliType] || {};
-  const cliArgs = cliConf.args || [];
-  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
+  // ── 4. wrapper 环境配置 ──
   const wrapperOptions = {
     serverUrl: serve.url,
     teamName,
