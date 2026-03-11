@@ -9,10 +9,13 @@ import { createLogger } from '../foundation/logger.js';
 
 const log = createLogger('hub');
 
+const MAX_LOG_SIZE = 200;
+
 export class MessageHub {
   constructor() {
     this.agents = new Map();   // agentName → { registeredAt, pid?, ... }
     this.queues = new Map();   // agentName → [{ from, message, timestamp }]
+    this.messageLog = [];      // 消息日志 ring buffer（最近 200 条）
   }
 
   /**
@@ -43,6 +46,16 @@ export class MessageHub {
   }
 
   /**
+   * 更新 agent 活动状态
+   */
+  updateActivity(agentName, active) {
+    const meta = this.agents.get(agentName);
+    if (meta) {
+      meta.active = active;
+    }
+  }
+
+  /**
    * 投递单条消息到目标 agent 队列
    * @returns {{ delivered: true, online: boolean }}
    */
@@ -52,6 +65,10 @@ export class MessageHub {
     }
     const entry = { from, message, timestamp: Date.now() };
     this.queues.get(to).push(entry);
+    this.messageLog.push({ from, to, message, timestamp: entry.timestamp });
+    if (this.messageLog.length > MAX_LOG_SIZE) {
+      this.messageLog.splice(0, this.messageLog.length - MAX_LOG_SIZE);
+    }
     log.info('msg.deliver', { from, to, preview: message.slice(0, 50) });
     return { delivered: true, online: this.isOnline(to) };
   }
@@ -83,6 +100,16 @@ export class MessageHub {
     const messages = [...queue];
     queue.length = 0;
     return messages;
+  }
+
+  /**
+   * 获取消息日志（最近 N 条）
+   * @param {number} [limit=50] - 返回条数上限
+   * @returns {Array<{ from, to, message, timestamp }>}
+   */
+  getMessageLog(limit = 50) {
+    const start = Math.max(0, this.messageLog.length - limit);
+    return this.messageLog.slice(start);
   }
 
   /**

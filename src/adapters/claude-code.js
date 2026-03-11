@@ -18,20 +18,23 @@ import { BaseAdapter } from './base.js';
 export class ClaudeCodeAdapter extends BaseAdapter {
   get binary() { return 'claude'; }
 
-  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd }) {
+  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd, extraArgs = [] }) {
     const args = [this.binary];
     if (agent) args.push('--agent', agent);
     if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
     if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath);
+    args.push(...extraArgs);
     return args;
   }
 
   buildMcpConfig({ serverUrl, agent }) {
-    // claude code 的 .mcp.json 格式：顶层 key 是 server 名
+    // claude code --mcp-config 格式：需要 mcpServers 包裹
     return {
-      openteam: {
-        type: 'http',
-        url: `${serverUrl}/mcp?agent=${encodeURIComponent(agent)}`,
+      mcpServers: {
+        openteam: {
+          type: 'http',
+          url: `${serverUrl}/mcp?agent=${encodeURIComponent(agent)}`,
+        },
       },
     };
   }

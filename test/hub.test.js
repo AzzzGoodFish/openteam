@@ -194,6 +194,68 @@ check('register preserves meta fields', () => {
   assertEq(s.dev.pid, 1234);
 });
 
+// ── message log (ring buffer) ──
+
+check('deliver appends to message log', () => {
+  const hub = new MessageHub();
+  hub.deliver({ from: 'pm', to: 'dev', message: 'hello' });
+  hub.deliver({ from: 'dev', to: 'pm', message: 'hi back' });
+  const log = hub.getMessageLog();
+  assertEq(log.length, 2, 'should have 2 log entries');
+  assertEq(log[0].from, 'pm');
+  assertEq(log[0].to, 'dev');
+  assertEq(log[0].message, 'hello');
+  assertEq(log[1].from, 'dev');
+  assertEq(log[1].to, 'pm');
+});
+
+check('getMessageLog respects limit', () => {
+  const hub = new MessageHub();
+  for (let i = 0; i < 10; i++) {
+    hub.deliver({ from: 'pm', to: 'dev', message: `msg${i}` });
+  }
+  const log = hub.getMessageLog(3);
+  assertEq(log.length, 3, 'should return only 3');
+  assertEq(log[0].message, 'msg7', 'should return latest 3');
+});
+
+check('message log is independent of pull', () => {
+  const hub = new MessageHub();
+  hub.register('dev');
+  hub.deliver({ from: 'pm', to: 'dev', message: 'test' });
+  hub.pull('dev'); // 消费队列
+  const log = hub.getMessageLog();
+  assertEq(log.length, 1, 'log should survive pull');
+});
+
+check('message log caps at MAX_LOG_SIZE', () => {
+  const hub = new MessageHub();
+  for (let i = 0; i < 210; i++) {
+    hub.deliver({ from: 'pm', to: 'dev', message: `msg${i}` });
+  }
+  const log = hub.getMessageLog(300);
+  assertEq(log.length, 200, 'should cap at 200');
+  assertEq(log[0].message, 'msg10', 'oldest should be msg10');
+});
+
+check('broadcast logs each delivery separately', () => {
+  const hub = new MessageHub();
+  hub.register('pm');
+  hub.register('dev');
+  hub.register('qa');
+  hub.broadcast({ from: 'pm', message: 'update', agents: ['pm', 'dev', 'qa'] });
+  const log = hub.getMessageLog();
+  assertEq(log.length, 2, 'should log 2 deliveries (excluding sender)');
+  assertEq(log[0].to, 'dev');
+  assertEq(log[1].to, 'qa');
+});
+
+check('getMessageLog returns empty array when no messages', () => {
+  const hub = new MessageHub();
+  const log = hub.getMessageLog();
+  assertEq(log.length, 0);
+});
+
 // ── summary ──
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

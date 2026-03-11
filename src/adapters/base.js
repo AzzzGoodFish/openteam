@@ -26,7 +26,7 @@ export class BaseAdapter {
    * @param {string} params.cwd - 工作目录
    * @returns {string[]} 命令数组，如 ['claude', '--agent', 'pm', ...]
    */
-  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd }) {
+  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd, extraArgs = [] }) {
     throw new Error('subclass must implement buildLaunchArgs');
   }
 

@@ -83,6 +83,28 @@ export function handleApiRequest(req, res, url, hub, context) {
     return true;
   }
 
+  // POST /api/heartbeat — wrapper 上报活动状态
+  if (method === 'POST' && pathname === '/api/heartbeat') {
+    readJsonBody(req).then(body => {
+      if (!body || !body.agent) {
+        json(res, 400, { error: 'missing "agent" field' });
+        return;
+      }
+      hub.updateActivity(body.agent, !!body.active);
+      json(res, 200, { ok: true });
+    });
+    return true;
+  }
+
+  // GET /api/messages/log — 消息日志（dashboard 用）
+  // 必须在 /api/messages/:agent 之前，否则 "log" 会被当作 agent 名
+  if (method === 'GET' && pathname === '/api/messages/log') {
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const messages = hub.getMessageLog(limit);
+    json(res, 200, { messages });
+    return true;
+  }
+
   // GET /api/messages/:agent
   const messagesMatch = pathname.match(/^\/api\/messages\/([^/]+)$/);
   if (method === 'GET' && messagesMatch) {

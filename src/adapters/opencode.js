@@ -12,10 +12,11 @@ import { BaseAdapter } from './base.js';
 export class OpenCodeAdapter extends BaseAdapter {
   get binary() { return 'opencode'; }
 
-  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd }) {
+  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd, extraArgs = [] }) {
     const args = [this.binary];
     // TODO: opencode 的 system prompt 和 agent 参数待确认
     if (systemPrompt) args.push('--prompt', systemPrompt);
+    args.push(...extraArgs);
     return args;
   }
 

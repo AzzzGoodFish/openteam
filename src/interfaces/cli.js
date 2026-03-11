@@ -153,10 +153,12 @@ export async function cmdStart(teamName, options) {
   const daemonCmd = `openteam daemon ${teamName} --port ${port} --dir "${projectDir}" --mux ${mux} --cli ${cliType}`;
 
   // zellij: 构建 wrapper 命令，由 team layout 的 stacked panes 自动调用
+  const cliArgs = teamConfig.cli_config?.[cliType]?.args || [];
   const wrapperOptions = {
     serverUrl: `http://127.0.0.1:${port}`,
     teamName, projectDir, cliType,
     agents: teamConfig.agents,
+    cliArgs,
   };
   const agentCmds = mux === 'zellij' ? teamConfig.agents.map(agent => ({
     name: agent,
@@ -217,7 +219,7 @@ export function cmdList(options = {}) {
       project: inst.projectDir,
       leader,
       members: others,
-      port: String(inst.runtime.serve?.port || inst.runtime.servePort || '—'),
+      port: String(inst.runtime.server?.port || inst.runtime.serverPort || '—'),
       created: relativeTime(inst.started),
     });
   }
@@ -363,7 +365,7 @@ export async function cmdInspect(teamName, options = {}) {
   const { projectDir, runtime } = resolveInstance(teamName, options);
   const teamConfig = loadTeamConfig(teamName);
   const leader = teamConfig?.leader || `${RED}未配置${NC}`;
-  const serveUrl = runtime.serve ? `http://${runtime.serve.host}:${runtime.serve.port}` : 'N/A';
+  const serveUrl = runtime.server ? `http://${runtime.server.host}:${runtime.server.port}` : 'N/A';
 
   console.log(`团队: ${GREEN}${teamName}${NC}`);
   console.log(`状态: ${GREEN}运行中${NC}`);

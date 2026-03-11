@@ -126,6 +126,7 @@ export function checkAndRespawn(mux, sessionName, wrapperOptions) {
 export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
   const { serverUrl, teamName, projectDir, cliType } = wrapperOptions;
   const agents = wrapperOptions.agents || [];
+  const cliArgs = wrapperOptions.cliArgs || [];
   const { mux, sessionName } = muxInfo;
 
   // 环境变量通过 env 命令设置（避免 export 语法差异）
@@ -139,6 +140,9 @@ export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
     `OPENTEAM_MUX=${mux}`,
     `OPENTEAM_SESSION=${sessionName}`,
   ];
+  if (cliArgs.length > 0) {
+    envVars.push(`OPENTEAM_CLI_ARGS='${JSON.stringify(cliArgs)}'`);
+  }
 
   // wrapper 入口：node bin/openteam.js wrapper
   const wrapperBin = 'openteam wrapper';

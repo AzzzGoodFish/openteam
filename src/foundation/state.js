@@ -70,11 +70,12 @@ function saveState(teamName, projectDir, state) {
  */
 function normalizeRuntime(raw) {
   if (!raw) return null;
+  const serverData = raw.server ?? raw.serve ?? null;  // 兼容旧格式
   return {
     daemon:     raw.daemon    ?? null,
-    serve:      raw.serve     ?? null,
+    server:     serverData,
     daemonPid:  raw.daemon?.pid  ?? raw.pid  ?? null,
-    servePort:  raw.serve?.port  ?? raw.port ?? null,
+    serverPort: serverData?.port ?? raw.port ?? null,
     mux:        raw.mux        ?? null,
     projectDir: raw.projectDir ?? null,
     started:    raw.started    ?? null,

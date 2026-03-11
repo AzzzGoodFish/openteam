@@ -29,7 +29,8 @@ export async function fetchTeamStatus(teamName, projectDir) {
 
   return {
     running: true,
-    url: runtime.serve ? `http://${runtime.serve.host}:${runtime.serve.port}` : 'N/A',
+    url: runtime.server ? `http://${runtime.server.host}:${runtime.server.port}` : 'N/A',
+    daemonPid: runtime.daemonPid || 'N/A',
     leader,
     projectDir: runtime.projectDir || projectDir || 'N/A',
     started: runtime.started,
@@ -58,8 +59,8 @@ export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
       return {
         name: agent,
         online: info?.online || false,
+        active: info?.active || false,
         pending: info?.pending || 0,
-        activity: info?.online ? 'active' : 'offline',
       };
     });
   } catch {
@@ -71,19 +72,36 @@ export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
 /**
  * 获取消息流数据
  *
- * v2: hub 是纯内存队列，pull 是消耗性的，无持久化历史。
- * Dashboard 消息流改为显示最近任务通知 + 占位说明。
- * 未来可在 hub 中添加消息历史 ring buffer。
+ * v2: 从 hub 消息日志 API 获取真实消息历史。
+ * 回退：API 不可用时降级到任务事件。
  */
 export async function fetchMessageStream(teamName, projectDir, serveUrl, limit = 20) {
-  // v2: 消息历史需要 hub 支持 ring buffer（暂未实现）
-  // 暂用任务事件作为消息流的补充数据源
+  // 优先从 hub 消息日志获取
+  try {
+    const res = await fetch(`${serveUrl}/api/messages/log?limit=${limit}`);
+    if (res.ok) {
+      const data = await res.json();
+      const messages = data.messages || [];
+      if (messages.length > 0) {
+        return messages.map(m => ({
+          timestamp: m.timestamp,
+          from: m.from,
+          to: m.to,
+          content: m.message.replace(/\n/g, ' ').slice(0, 80),
+          fullContent: m.message,
+        }));
+      }
+    }
+  } catch {
+    // API 不可用，降级到任务事件
+  }
+
+  // 降级：用任务事件填充
   try {
     const { tasks } = loadTasks(teamName, projectDir);
     const events = [];
 
     for (const task of tasks) {
-      // 任务创建事件
       if (task.createdAt) {
         events.push({
           timestamp: task.createdAt,
@@ -93,7 +111,6 @@ export async function fetchMessageStream(teamName, projectDir, serveUrl, limit =
           fullContent: task.description ? `[task #${task.id}] ${task.title}：${task.description}` : `[task #${task.id}] ${task.title}`,
         });
       }
-      // 任务完成事件
       if (task.doneAt) {
         events.push({
           timestamp: task.doneAt,

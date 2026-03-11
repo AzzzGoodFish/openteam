@@ -72,7 +72,7 @@ src/
 
 ### 依赖规则
 
-- Foundation 模块之间互不依赖（constants 除外）
+- Foundation 模块之间互不依赖（constants 和 logger 除外）
 - Capabilities 只依赖 Foundation
 - Interfaces 依赖 Capabilities + Foundation
 - server/ 依赖 Foundation + Capabilities
@@ -86,7 +86,7 @@ src/
 
 **依赖方向**
 - 只能向下依赖：Interfaces → Capabilities → Foundation
-- Foundation 模块之间互不依赖（constants 除外）
+- Foundation 模块之间互不依赖（constants 和 logger 除外）
 - Capabilities 内允许单向依赖，禁止循环
 - 禁止任何反向依赖（如 Foundation 调用 Capabilities）
 

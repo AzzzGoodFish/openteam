@@ -497,9 +497,8 @@ export function listPanes(mux, sessionName) {
 /**
  * 向指定 pane 发送按键序列（文本 + Enter）
  *
- * 用于 wrapper 向 CLI pane 注入用户消息。
  * tmux: send-keys -t "session:paneId" "text" Enter
- * zellij: TODO — 阶段 3 确定（wrapper 在 pane 内部时可用 zellij action write-chars）
+ * zellij: 由 wrapper PTY 层处理，不经过此函数
  *
  * @param {'tmux'|'zellij'} mux
  * @param {string} sessionName
@@ -524,9 +523,9 @@ export function sendKeys(mux, sessionName, paneId, text) {
       }
       return true;
     } else if (mux === 'zellij') {
-      // TODO: zellij pane targeting 待阶段 3 确定
-      // wrapper 在 pane 内部时可直接 zellij action write-chars，无需外部 target
-      log.warn('sendKeys not yet supported for zellij');
+      // zellij 消息注入由 wrapper PTY 层处理，不走 terminal.js
+      // wrapper 持有 PTY master，直接写入即可，无需 mux pane targeting
+      log.warn('sendKeys: zellij uses wrapper PTY injection');
       return false;
     }
   } catch (err) {
@@ -539,9 +538,8 @@ export function sendKeys(mux, sessionName, paneId, text) {
 /**
  * 向指定 pane 粘贴多行文本（bracketed paste 模式）
  *
- * 用于注入多行消息，防止中间换行触发 CLI 提交。
  * tmux: 用 send-keys -l 发送 literal 字符，包裹 bracketed paste 转义序列
- * zellij: TODO — 同 sendKeys
+ * zellij: 由 wrapper PTY 层处理，不经过此函数
  *
  * @param {'tmux'|'zellij'} mux
  * @param {string} sessionName
@@ -569,8 +567,8 @@ export function pasteText(mux, sessionName, paneId, text) {
       }
       return true;
     } else if (mux === 'zellij') {
-      // TODO: zellij pane targeting 待阶段 3 确定
-      log.warn('pasteText not yet supported for zellij');
+      // zellij 消息注入由 wrapper PTY 层处理，不走 terminal.js
+      log.warn('pasteText: zellij uses wrapper PTY injection');
       return false;
     }
   } catch (err) {

@@ -10,7 +10,7 @@ import { getRuntime } from '../../foundation/state.js';
 import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateTaskBoard, updateMessageStream } from './ui.js';
 import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream, fetchTaskBoard } from './data.js';
 
-const REFRESH_INTERVAL = 3000;
+const REFRESH_INTERVAL = 1000;
 
 /**
  * 独立模式：启动 Dashboard（原有行为不变）
@@ -23,7 +23,7 @@ export async function dashboard(teamName, projectDir) {
     process.exit(1);
   }
 
-  const serveUrl = `http://${runtime.serve?.host || '127.0.0.1'}:${runtime.serve?.port}`;
+  const serveUrl = `http://${runtime.server?.host || '127.0.0.1'}:${runtime.server?.port}`;
   const ui = createDashboard(teamName);
 
   await refreshDashboard(ui, teamName, projectDir, serveUrl);

@@ -26,6 +26,8 @@ const HEALTH_CHECK_INTERVAL = 10000;
 export async function runDaemon(teamName, projectDir, options = {}) {
   // 标记 daemon 进程，logger 据此跳过 console.error（避免破坏 blessed TUI）
   process.env.OPENTEAM_DAEMON = '1';
+  // daemon 及其子进程（wrapper）默认启用日志
+  if (!process.env.OPENTEAM_LOG) process.env.OPENTEAM_LOG = '1';
 
   // ── 校验 ──
   const validation = validateTeamConfig(teamName);
@@ -61,23 +63,41 @@ export async function runDaemon(teamName, projectDir, options = {}) {
 
   saveRuntime(teamName, projectDir, {
     daemon: { pid: process.pid },
-    serve: { port: serve.port, host: serve.host },
+    server: { port: serve.port, host: serve.host },
     mux: { type: muxType, session: sessionName },
     team: teamName,
     projectDir,
     started: new Date().toISOString(),
   });
 
-  // ── 2. wrapper 环境配置 ──
+  // ── 2. 确保 agent/skill 软链接 ──
+  const { ensureLinks } = await import('./links.js');
+  const linkResult = ensureLinks({ teamName, projectDir, cliType, agents });
+  if (!linkResult.ok) {
+    console.error(`链接错误: ${linkResult.error}`);
+    await stopServe(serve.close);
+    clearRuntime(teamName, projectDir);
+    process.exit(1);
+  }
+  if (linkResult.warned.length > 0) {
+    for (const w of linkResult.warned) console.log(`  ⚠ ${w}`);
+  }
+  if (linkResult.linked.length > 0) {
+    console.log(`已创建 ${linkResult.linked.length} 个链接`);
+  }
+
+  // ── 3. wrapper 环境配置 ──
+  const cliArgs = teamConfig.cli_config?.[cliType]?.args || [];
   const wrapperOptions = {
     serverUrl: serve.url,
     teamName,
     projectDir,
     cliType,
     agents,
+    cliArgs,
   };
 
-  // ── 3. 创建 agent panes ──
+  // ── 4. 创建 agent panes ──
   // zellij: layout 已在 startSession 时创建好 stacked agents
   // tmux:   需要动态创建 agent window
   if (muxType !== 'zellij') {
@@ -91,7 +111,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     }
   }
 
-  // ── 4. 健康检查循环 ──
+  // ── 5. 健康检查循环 ──
   const healthInterval = setInterval(() => {
     try {
       const { checked, respawned } = checkAndRespawn(muxType, sessionName, wrapperOptions);
@@ -103,12 +123,12 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     }
   }, HEALTH_CHECK_INTERVAL);
 
-  // ── 5. 启动嵌入式 dashboard ──
+  // ── 6. 启动嵌入式 dashboard ──
   console.log('启动 dashboard...\n');
   const dash = createEmbeddedDashboard(teamName, projectDir, serve.url);
   dash.start();
 
-  // ── 6. 信号处理 — 优雅关闭 ──
+  // ── 7. 信号处理 — 优雅关闭 ──
   const shutdown = async (signal) => {
     log.info(`received ${signal}, shutting down...`);
     clearInterval(healthInterval);
