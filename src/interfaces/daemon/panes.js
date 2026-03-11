@@ -152,3 +152,27 @@ export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
 
   return `env ${envVars.join(' ')} ${wrapperBin}`;
 }
+
+/**
+ * 从 teamConfig 构建 wrapperOptions — 唯一入口，消除重复构建
+ *
+ * @param {object} teamConfig - 团队配置
+ * @param {object} runtime - 运行时信息
+ * @param {string} runtime.serverUrl
+ * @param {string} runtime.teamName
+ * @param {string} runtime.projectDir
+ * @param {string} runtime.cliType
+ * @returns {object} wrapperOptions
+ */
+export function buildWrapperOptions(teamConfig, { serverUrl, teamName, projectDir, cliType }) {
+  const cliConf = teamConfig.cli_config?.[cliType] || {};
+  return {
+    serverUrl,
+    teamName,
+    projectDir,
+    cliType,
+    agents: teamConfig.agents,
+    cliArgs: cliConf.args || [],
+    keepDefaultSP: !!cliConf.keep_default_system_prompt,
+  };
+}

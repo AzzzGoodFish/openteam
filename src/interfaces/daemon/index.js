@@ -14,7 +14,7 @@ import { DEFAULTS, getSessionName } from '../../foundation/constants.js';
 import { createLogger } from '../../foundation/logger.js';
 import { cleanMuxEnv } from '../../foundation/terminal.js';
 import { startServe, stopServe } from './serve.js';
-import { createAllAgentPanes, checkAndRespawn } from './panes.js';
+import { createAllAgentPanes, checkAndRespawn, buildWrapperOptions } from './panes.js';
 import { createEmbeddedDashboard } from '../dashboard/index.js';
 
 const log = createLogger('daemon');
@@ -71,9 +71,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   });
 
   // ── 2. 读取 CLI 配置 ──
-  const cliConf = teamConfig.cli_config?.[cliType] || {};
-  const cliArgs = cliConf.args || [];
-  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
+  const keepDefaultSP = !!teamConfig.cli_config?.[cliType]?.keep_default_system_prompt;
 
   // ── 3. 确保 agent/skill 软链接 ──
   const { ensureLinks } = await import('./links.js');
@@ -92,15 +90,9 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   }
 
   // ── 4. wrapper 环境配置 ──
-  const wrapperOptions = {
-    serverUrl: serve.url,
-    teamName,
-    projectDir,
-    cliType,
-    agents,
-    cliArgs,
-    keepDefaultSP,
-  };
+  const wrapperOptions = buildWrapperOptions(teamConfig, {
+    serverUrl: serve.url, teamName, projectDir, cliType,
+  });
 
   // ── 4. 创建 agent panes ──
   // zellij: layout 已在 startSession 时创建好 stacked agents

@@ -16,7 +16,7 @@ import {
   listAllInstances,
 } from '../foundation/state.js';
 import { detectMultiplexer, getSessionState, hasSession, findSessionsByPrefix, attachSession, startSession, killSession, isInsideMux } from '../foundation/terminal.js';
-import { buildWrapperCmd } from './daemon/panes.js';
+import { buildWrapperCmd, buildWrapperOptions } from './daemon/panes.js';
 
 // ── 输出辅助 ──
 
@@ -156,16 +156,10 @@ export async function cmdStart(teamName, options) {
   const daemonCmd = `openteam daemon ${teamName} --port ${port} --dir "${projectDir}" --mux ${mux} --cli ${cliType}`;
 
   // zellij: 构建 wrapper 命令，由 team layout 的 stacked panes 自动调用
-  const cliConf = teamConfig.cli_config?.[cliType] || {};
-  const cliArgs = cliConf.args || [];
-  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
-  const wrapperOptions = {
+  const wrapperOptions = buildWrapperOptions(teamConfig, {
     serverUrl: `http://127.0.0.1:${port}`,
     teamName, projectDir, cliType,
-    agents: teamConfig.agents,
-    cliArgs,
-    keepDefaultSP,
-  };
+  });
   const agentCmds = mux === 'zellij' ? teamConfig.agents.map(agent => ({
     name: agent,
     cmd: buildWrapperCmd(agent, wrapperOptions, { mux, sessionName }),
