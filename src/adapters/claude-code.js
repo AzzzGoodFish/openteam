@@ -18,10 +18,16 @@ import { BaseAdapter } from './base.js';
 export class ClaudeCodeAdapter extends BaseAdapter {
   get binary() { return 'claude'; }
 
-  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd, extraArgs = [] }) {
+  buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd, extraArgs = [], systemPromptFile }) {
     const args = [this.binary];
-    if (agent) args.push('--agent', agent);
-    if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
+    if (systemPromptFile) {
+      // keep_default_system_prompt 模式：不用 --agent，用 --append-system-prompt-file
+      args.push('--append-system-prompt-file', systemPromptFile);
+    } else {
+      // 默认模式：--agent 加载 agent 定义
+      if (agent) args.push('--agent', agent);
+      if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
+    }
     if (mcpConfigPath) args.push('--mcp-config', mcpConfigPath);
     args.push(...extraArgs);
     return args;

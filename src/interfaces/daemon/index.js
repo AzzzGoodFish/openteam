@@ -72,7 +72,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
 
   // ── 2. 确保 agent/skill 软链接 ──
   const { ensureLinks } = await import('./links.js');
-  const linkResult = ensureLinks({ teamName, projectDir, cliType, agents });
+  const linkResult = ensureLinks({ teamName, projectDir, cliType, agents, skipAgentLinks: keepDefaultSP });
   if (!linkResult.ok) {
     console.error(`链接错误: ${linkResult.error}`);
     await stopServe(serve.close);
@@ -87,7 +87,9 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   }
 
   // ── 3. wrapper 环境配置 ──
-  const cliArgs = teamConfig.cli_config?.[cliType]?.args || [];
+  const cliConf = teamConfig.cli_config?.[cliType] || {};
+  const cliArgs = cliConf.args || [];
+  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
   const wrapperOptions = {
     serverUrl: serve.url,
     teamName,
@@ -95,6 +97,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     cliType,
     agents,
     cliArgs,
+    keepDefaultSP,
   };
 
   // ── 4. 创建 agent panes ──

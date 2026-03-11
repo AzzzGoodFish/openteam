@@ -124,7 +124,7 @@ export function checkAndRespawn(mux, sessionName, wrapperOptions) {
  * @returns {string} shell 命令
  */
 export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
-  const { serverUrl, teamName, projectDir, cliType } = wrapperOptions;
+  const { serverUrl, teamName, projectDir, cliType, keepDefaultSP } = wrapperOptions;
   const agents = wrapperOptions.agents || [];
   const cliArgs = wrapperOptions.cliArgs || [];
   const { mux, sessionName } = muxInfo;
@@ -142,6 +142,9 @@ export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
   ];
   if (cliArgs.length > 0) {
     envVars.push(`OPENTEAM_CLI_ARGS='${JSON.stringify(cliArgs)}'`);
+  }
+  if (keepDefaultSP) {
+    envVars.push('OPENTEAM_KEEP_DEFAULT_SP=1');
   }
 
   // wrapper 入口：node bin/openteam.js wrapper

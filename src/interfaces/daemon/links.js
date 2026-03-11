@@ -41,9 +41,10 @@ export const CLI_DIRS = {
  * @param {string} params.projectDir
  * @param {string} params.cliType - 'claude-code' | 'opencode'
  * @param {string[]} params.agents - 团队 agent 列表
+ * @param {boolean} [params.skipAgentLinks] - 跳过 agent symlink（keep_default_system_prompt 模式）
  * @returns {{ ok: true, linked: string[], skipped: string[], warned: string[] } | { ok: false, error: string }}
  */
-export function ensureLinks({ teamName, projectDir, cliType, agents }) {
+export function ensureLinks({ teamName, projectDir, cliType, agents, skipAgentLinks = false }) {
   const dirs = CLI_DIRS[cliType];
   if (!dirs) {
     log.warn(`unsupported CLI type for symlinks: ${cliType}`);
@@ -55,19 +56,23 @@ export function ensureLinks({ teamName, projectDir, cliType, agents }) {
   const skipped = [];
   const warned = [];
 
-  // ── Agent 链接 ──
-  const agentTargetDir = dirs.agents;
-  ensureDir(agentTargetDir);
+  // ── Agent 链接（keep_default_system_prompt 模式下跳过，由 wrapper 直接读源文件）──
+  if (!skipAgentLinks) {
+    const agentTargetDir = dirs.agents;
+    ensureDir(agentTargetDir);
 
-  for (const agent of agents) {
-    const source = path.join(PATHS.AGENTS_DEFS_DIR, `${agent}.md`);
-    const target = path.join(agentTargetDir, `${agent}.md`);
+    for (const agent of agents) {
+      const source = path.join(PATHS.AGENTS_DEFS_DIR, `${agent}.md`);
+      const target = path.join(agentTargetDir, `${agent}.md`);
 
-    const result = ensureSymlink(source, target, `agent ${agent}`);
-    if (!result.ok) return result; // 冲突 → 中止
-    if (result.action === 'created') linked.push(target);
-    else if (result.action === 'exists') skipped.push(target);
-    else if (result.action === 'no-source') warned.push(`${agent}: 源文件不存在 (${source})`);
+      const result = ensureSymlink(source, target, `agent ${agent}`);
+      if (!result.ok) return result; // 冲突 → 中止
+      if (result.action === 'created') linked.push(target);
+      else if (result.action === 'exists') skipped.push(target);
+      else if (result.action === 'no-source') warned.push(`${agent}: 源文件不存在 (${source})`);
+    }
+  } else {
+    log.info('agent symlinks skipped (keep_default_system_prompt mode)');
   }
 
   // ── Skill 链接 ──
