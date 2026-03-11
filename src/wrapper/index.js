@@ -266,7 +266,9 @@ function writeSystemPromptFile(agent, teamPrompt) {
   }
 
   const combined = [agentContent, '', '---', '', '# Team Context', '', teamPrompt].join('\n');
-  const tmpPath = path.join(os.tmpdir(), `openteam-prompt-${agent}.md`);
+  // 进程独占的临时目录，避免多用户/多实例文件冲突
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openteam-'));
+  const tmpPath = path.join(tmpDir, `${agent}.md`);
   fs.writeFileSync(tmpPath, combined, 'utf-8');
   return tmpPath;
 }
@@ -274,6 +276,9 @@ function writeSystemPromptFile(agent, teamPrompt) {
 function cleanupTempFile(filePath) {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    // 清理临时目录（mkdtemp 创建的）
+    const dir = path.dirname(filePath);
+    if (dir !== os.tmpdir()) fs.rmdirSync(dir);
   } catch {
     // 忽略清理失败
   }
