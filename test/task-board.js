@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * 任务看板 MVP — 验收测试
+ * 任务看板 MVP — 验收测试（v2 架构）
  *
  * 测试策略：
  * - 创建临时团队配置（写入 ~/.opencode/agents/<team>/team.json）
  * - 用唯一 projectDir 隔离状态目录
- * - capabilities 层 API 直接调用验证业务逻辑
+ * - capabilities 层 API 直接调用验证业务逻辑（传入 MessageHub 实例）
  * - foundation/tasks.js 直接验证持久化
- * - deliverMessage 在无 serve 时会失败，通过 triggered 返回值验证通知意图
+ * - hub.deliver() 是纯内存操作，通知通过 triggered 返回值验证
+ *
+ * v2 架构变更：
+ * - taskboard API 使用 hub（MessageHub 实例）替代 serveUrl
+ * - MCP tools 定义在 src/server/mcp.js（非 plugin/tools.js）
+ * - messaging/lifecycle/plugin 模块已删除
  *
  * 覆盖 PRD 验收标准：
  * 1. 任务创建 — 正常创建 + 权限校验 + 参数校验
@@ -18,8 +23,9 @@
  * 5. 持久化 — .tasks.json 文件验证
  * 6. Dashboard 展示 — 数据函数 + 数据结构 + 布局顺序
  * 7. 任务列表查询 — list 返回所有任务
- * 8. 无回归 — smoke + messaging + CLI
- * 9. 工具重命名 — task → taskboard
+ * 8. 无回归 — smoke + CLI + hub
+ * 9. 工具重命名 — task → taskboard（验证 mcp.js 源码）
+ * 10. msg boss 限制 — 验证 mcp.js 源码
  */
 
 import fs from 'fs';
@@ -67,10 +73,6 @@ async function checkAsync(name, fn) {
 const TEST_TEAM = `_qa-test-${Date.now()}`;
 const TEST_PROJECT_DIR = `/tmp/openteam-qa-project-${Date.now()}`;
 
-// 假 serve URL — 需要是可解析的 URL（否则 deliverMessage 会因 URL 解析失败而 crash）
-// 使用不可达地址，连接会被拒绝但不会因 URL 解析崩溃
-const FAKE_SERVE_URL = 'http://127.0.0.1:1';
-
 // 导入常量获取真实路径
 const { PATHS, FILES, getTeamDir, getTeamStateDir } = await import('../src/foundation/constants.js');
 
@@ -104,10 +106,10 @@ process.on('SIGINT', () => { cleanup(); process.exit(1); });
 const { createTask, completeTask, listTasks } = await import('../src/capabilities/taskboard.js');
 const { loadTasks, saveTasks } = await import('../src/foundation/tasks.js');
 const { fetchTaskBoard } = await import('../src/interfaces/dashboard/data.js');
-const { createToolDefs } = await import('../src/interfaces/plugin/tools.js');
+const { MessageHub } = await import('../src/server/hub.js');
 
-// deliverMessage 需要 serve，我们不要求它成功
-// 通过 createTask/completeTask 返回值中的 triggered 字段验证通知意图
+// v2: 使用内存 MessageHub 替代 serveUrl，通知通过 hub.deliver() 直接投递
+const hub = new MessageHub();
 
 console.log('Task Board MVP — Acceptance Tests\n');
 console.log(`  测试团队: ${TEST_TEAM}`);
@@ -123,7 +125,7 @@ await checkAsync('P0: 创建无依赖任务 — 返回 ok + 任务 ID', async ()
   const result = await createTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '设计架构方案',
     assignee: 'architect',
     dependsOn: [],
@@ -149,7 +151,7 @@ await checkAsync('P0: 创建带描述的任务', async () => {
   const result = await createTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '编写代码',
     description: '实现核心功能',
     assignee: 'developer',
@@ -165,7 +167,7 @@ await checkAsync('P0: assignee 不在团队中 → 报错', async () => {
   const result = await createTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '给外人的任务',
     assignee: 'outsider',
     dependsOn: [],
@@ -179,7 +181,7 @@ await checkAsync('P0: depends_on 引用不存在的任务 → 报错', async () 
   const result = await createTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '依赖幽灵任务',
     assignee: 'developer',
     dependsOn: [999],
@@ -189,18 +191,20 @@ await checkAsync('P0: depends_on 引用不存在的任务 → 报错', async () 
   if (!result.error.includes('999')) throw new Error(`错误信息应提及 #999: ${result.error}`);
 });
 
-// 权限校验在 tools.js 层 — 验证工具定义
-check('P0: taskboard 工具 create 的 leader 权限校验在 tools 层', () => {
-  const defs = createToolDefs();
-  const taskTool = defs.taskboard;
-  if (!taskTool) throw new Error('taskboard 工具未定义（注意：已从 task 重命名为 taskboard）');
-  if (!taskTool.execute) throw new Error('taskboard 工具缺少 execute');
-  if (!taskTool.args.action) throw new Error('缺少 action 参数');
-  if (!taskTool.args.title) throw new Error('缺少 title 参数');
-  if (!taskTool.args.assignee) throw new Error('缺少 assignee 参数');
-  if (!taskTool.args.id) throw new Error('缺少 id 参数');
-  if (!taskTool.args.depends_on) throw new Error('缺少 depends_on 参数');
-  if (!taskTool.args.description) throw new Error('缺少 description 参数');
+// 权限校验在 mcp.js 层 — 验证源码包含 leader 权限检查
+check('P0: taskboard 工具 create 的 leader 权限校验在 mcp.js 层', () => {
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 验证 create action 中有 leader 权限检查
+  if (!mcpSrc.includes('isLeader')) throw new Error('mcp.js 中未找到 isLeader 权限检查');
+  if (!mcpSrc.match(/only.*leader.*create/i)) throw new Error('mcp.js 中未找到 leader-only create 错误消息');
+  // 验证 inputSchema 包含关键参数
+  if (!mcpSrc.includes("action:")) throw new Error('缺少 action 参数');
+  if (!mcpSrc.includes("title:")) throw new Error('缺少 title 参数');
+  if (!mcpSrc.includes("assignee:")) throw new Error('缺少 assignee 参数');
+  if (!mcpSrc.includes("id:")) throw new Error('缺少 id 参数');
+  if (!mcpSrc.includes("depends_on:")) throw new Error('缺少 depends_on 参数');
+  if (!mcpSrc.includes("description:")) throw new Error('缺少 description 参数');
 });
 
 // ============================================================
@@ -220,33 +224,27 @@ fs.writeFileSync(path.join(notifyTeamDir, FILES.TEAM_CONFIG), JSON.stringify({
 }));
 fs.mkdirSync(notifyStateDir, { recursive: true });
 
-// deliverMessage 需要 serve。无 serve 时它会失败。
-// 但 createTask 返回 triggered 数组，即使通知失败也能看到意图。
-// 注意：如果 deliverMessage 抛异常，createTask 可能也会失败。
-// 我们用 try-catch 处理，关注的是 task 是否创建成功 + triggered 的内容
+// v2: hub.deliver() 是纯内存操作，通知始终成功
+// createTask 返回 triggered 数组记录通知结果
 
 await checkAsync('P0: 无依赖任务 → triggered 包含 assignee', async () => {
   const result = await createTask({
     teamName: NOTIFY_TEAM,
     projectDir: NOTIFY_PROJECT,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '立即通知任务',
     assignee: 'architect',
     dependsOn: [],
     trace: 'notify-1',
   });
   if (!result.ok) throw new Error(`创建失败: ${result.error}`);
-  // triggered 应包含 architect 相关的条目
+  // v2: hub.deliver() 纯内存，triggered 一定非空
   if (!result.triggered || result.triggered.length === 0) {
-    // 如果 deliverMessage 失败导致 triggered 为空，检查任务是否至少创建成功
-    // 这说明通知调用了但可能因无 serve 而失败
-    // 注意：实现中 triggered 记录的是 notifyAssignee 的返回值
-    console.log(`  (triggered 为空，可能因无 serve 导致通知失败，但任务已创建)`);
-  } else {
-    const triggerStr = result.triggered.join(' ');
-    if (!triggerStr.includes('architect')) {
-      throw new Error(`triggered 应包含 architect: ${triggerStr}`);
-    }
+    throw new Error('无依赖任务的 triggered 不应为空');
+  }
+  const triggerStr = result.triggered.join(' ');
+  if (!triggerStr.includes('architect')) {
+    throw new Error(`triggered 应包含 architect: ${triggerStr}`);
   }
 });
 
@@ -254,7 +252,7 @@ await checkAsync('P0: 有未完成依赖的任务 → triggered 为空', async (
   const result = await createTask({
     teamName: NOTIFY_TEAM,
     projectDir: NOTIFY_PROJECT,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '等待的任务',
     assignee: 'developer',
     dependsOn: [1],  // 依赖 #1，#1 是 pending
@@ -272,7 +270,7 @@ await checkAsync('P0: 通知消息格式 — notifyAssignee 构造 [task #N] 格
   const result = await createTask({
     teamName: NOTIFY_TEAM,
     projectDir: NOTIFY_PROJECT,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     title: '格式测试',
     assignee: 'qa',
     dependsOn: [],
@@ -300,7 +298,7 @@ await checkAsync('P0: agent 标记自己的任务完成', async () => {
   const result = await completeTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     agentName: 'architect',
     taskId: 1,
     trace: 'done-1',
@@ -314,7 +312,7 @@ await checkAsync('P0: 标记非自己的任务 → 报错', async () => {
   const result = await completeTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     agentName: 'architect',  // 试图完成 developer 的任务 #2
     taskId: 2,
     trace: 'done-2',
@@ -327,7 +325,7 @@ await checkAsync('P0: 任务 ID 不存在 → 报错', async () => {
   const result = await completeTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     agentName: 'architect',
     taskId: 999,
     trace: 'done-3',
@@ -340,7 +338,7 @@ await checkAsync('P0: 已完成的任务再次标记 → 报错', async () => {
   const result = await completeTask({
     teamName: TEST_TEAM,
     projectDir: TEST_PROJECT_DIR,
-    serveUrl: FAKE_SERVE_URL,
+    hub,
     agentName: 'architect',
     taskId: 1,  // 已在前面标记 done
     trace: 'done-4',
@@ -365,17 +363,17 @@ fs.writeFileSync(path.join(leaderTeamDir, FILES.TEAM_CONFIG), JSON.stringify({
 fs.mkdirSync(getTeamStateDir(LEADER_TEAM, LEADER_PROJECT), { recursive: true });
 
 await createTask({
-  teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, serveUrl: FAKE_SERVE_URL,
+  teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, hub,
   title: 'leader通知测试', assignee: 'architect', dependsOn: [], trace: 'leader-test',
 });
 await createTask({
-  teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, serveUrl: FAKE_SERVE_URL,
+  teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, hub,
   title: 'leader自己的任务', assignee: 'pm', dependsOn: [], trace: 'leader-self',
 });
 
 await checkAsync('P0: 非 leader 完成任务 — 不崩溃（leader 通知代码路径执行）', async () => {
   const result = await completeTask({
-    teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, serveUrl: FAKE_SERVE_URL,
+    teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, hub,
     agentName: 'architect', taskId: 1, trace: 'leader-done',
   });
   if (!result.ok) throw new Error(`完成失败: ${result.error}`);
@@ -385,7 +383,7 @@ await checkAsync('P0: 非 leader 完成任务 — 不崩溃（leader 通知代�
 
 await checkAsync('P0: leader 自己完成任务 — 不自我通知，正常完成', async () => {
   const result = await completeTask({
-    teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, serveUrl: FAKE_SERVE_URL,
+    teamName: LEADER_TEAM, projectDir: LEADER_PROJECT, hub,
     agentName: 'pm', taskId: 2, trace: 'leader-self-done',
   });
   if (!result.ok) throw new Error(`完成失败: ${result.error}`);
@@ -426,7 +424,7 @@ fs.writeFileSync(path.join(chainTeamDir, FILES.TEAM_CONFIG), JSON.stringify({
 }));
 fs.mkdirSync(chainStateDir, { recursive: true });
 
-const chainOpts = { teamName: CHAIN_TEAM, projectDir: CHAIN_PROJECT, serveUrl: FAKE_SERVE_URL };
+const chainOpts = { teamName: CHAIN_TEAM, projectDir: CHAIN_PROJECT, hub };
 
 // 构建依赖图:
 //   #1 A(architect) — 无依赖
@@ -748,12 +746,17 @@ check('P1: listTasks 包含状态信息', () => {
 });
 
 check('P1: taskboard 工具 list action 格式化输出', () => {
-  // 验证 tools.js 中 list 输出包含状态标识 ✓/⏳
-  const toolDefs = createToolDefs();
-  const taskTool = toolDefs.taskboard;
-  if (!taskTool) throw new Error('taskboard 工具未定义');
-  // 不能直接调用 execute，但从源码可见 list 格式化使用 ✓ 和 ⏳
-  // 这里通过 listTasks 返回的数据结构间接验证
+  // 验证 mcp.js 中 list 输出包含状态标识 ✓/⏳
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // ✓ = \u2713, ⏳ = \u23f3
+  if (!mcpSrc.includes('\\u2713') && !mcpSrc.includes('\u2713')) {
+    throw new Error('mcp.js list 格式化中未找到 ✓ (\\u2713) 标识');
+  }
+  if (!mcpSrc.includes('\\u23f3') && !mcpSrc.includes('\u23f3')) {
+    throw new Error('mcp.js list 格式化中未找到 ⏳ (\\u23f3) 标识');
+  }
+  // 同时验证数据层有 done 和 pending 任务
   const tasks = listTasks(TEST_TEAM, TEST_PROJECT_DIR);
   const doneTask = tasks.find(t => t.status === 'done');
   const pendingTask = tasks.find(t => t.status === 'pending');
@@ -773,27 +776,15 @@ check('P0: smoke 测试通过', () => {
   });
 });
 
-await checkAsync('P0: messaging 模块仍导出 sendMessage 和 broadcast', async () => {
-  const messaging = await import('../src/capabilities/messaging.js');
-  if (typeof messaging.sendMessage !== 'function') throw new Error('sendMessage 丢失');
-  if (typeof messaging.broadcast !== 'function') throw new Error('broadcast 丢失');
-});
-
-await checkAsync('P0: messaging 新增导出 deliverMessage', async () => {
-  const messaging = await import('../src/capabilities/messaging.js');
-  if (typeof messaging.deliverMessage !== 'function') throw new Error('deliverMessage 未导出');
-});
-
-check('P0: tools.js 导出 msg、command、taskboard 工具', () => {
-  const defs = createToolDefs();
-  if (!defs.msg) throw new Error('msg 工具丢失');
-  if (!defs.command) throw new Error('command 工具丢失');
-  if (!defs.taskboard) throw new Error('taskboard 工具丢失（已从 task 重命名）');
-  if (defs.task) throw new Error('旧工具名 task 仍存在，应已重命名为 taskboard');
-});
-
 check('P0: CLI 无回归', () => {
   execSync('node test/cli-simplification.js', {
+    encoding: 'utf8',
+    cwd: path.resolve(import.meta.dirname, '..'),
+  });
+});
+
+check('P0: hub 测试通过', () => {
+  execSync('node test/hub.test.js', {
     encoding: 'utf8',
     cwd: path.resolve(import.meta.dirname, '..'),
   });
@@ -805,24 +796,39 @@ check('P0: CLI 无回归', () => {
 console.log(`\n${YELLOW}--- 9. 工具重命名 ---${NC}`);
 
 check('P0: 工具注册名为 taskboard（非 task）', () => {
-  const defs = createToolDefs();
-  if (!defs.taskboard) throw new Error('工具应注册为 taskboard');
-  if (defs.task) throw new Error('旧名 task 仍存在');
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 验证注册为 'taskboard'
+  if (!mcpSrc.match(/registerTool\(\s*['"]taskboard['"]/)) {
+    throw new Error('mcp.js 中未找到 registerTool("taskboard")');
+  }
+  // 验证没有注册为 'task'
+  if (mcpSrc.match(/registerTool\(\s*['"]task['"]\s*,/)) {
+    throw new Error('mcp.js 中仍存在旧名 registerTool("task")');
+  }
 });
 
 check('P0: taskboard 工具描述中包含任务管理相关说明', () => {
-  const defs = createToolDefs();
-  if (!defs.taskboard.description) throw new Error('缺少 description');
-  if (!defs.taskboard.description.match(/任务|task/i)) {
-    throw new Error(`description 应提及任务管理: ${defs.taskboard.description}`);
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 提取 taskboard tool 的 description
+  const descMatch = mcpSrc.match(/registerTool\(\s*['"]taskboard['"][\s\S]*?description:\s*['"]([^'"]+)['"]/);
+  if (!descMatch) throw new Error('未找到 taskboard 工具的 description');
+  const desc = descMatch[1];
+  if (!desc.match(/task/i)) {
+    throw new Error(`description 应提及 task management: ${desc}`);
   }
 });
 
 check('P0: taskboard 工具支持 create/done/list actions', () => {
-  const defs = createToolDefs();
-  const desc = defs.taskboard.description + ' ' + (defs.taskboard.args?.action?.describe?.() || '');
-  // action 参数应描述支持的操作
-  if (!defs.taskboard.args.action) throw new Error('缺少 action 参数');
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 验证 inputSchema 有 action 字段
+  if (!mcpSrc.match(/action:\s*z\.string\(\)/)) throw new Error('mcp.js 中未找到 action 参数定义');
+  // 验证支持 create/done/list
+  if (!mcpSrc.includes("action === 'create'")) throw new Error('mcp.js 中未找到 create action 处理');
+  if (!mcpSrc.includes("action === 'done'")) throw new Error('mcp.js 中未找到 done action 处理');
+  if (!mcpSrc.includes("action === 'list'")) throw new Error('mcp.js 中未找到 list action 处理');
 });
 
 // ============================================================
@@ -831,45 +837,36 @@ check('P0: taskboard 工具支持 create/done/list actions', () => {
 console.log(`\n${YELLOW}--- 10. msg boss 限制 ---${NC}`);
 
 check('P0: msg 工具 description 包含 boss 警告', () => {
-  const defs = createToolDefs();
-  const msgTool = defs.msg;
-  if (!msgTool) throw new Error('msg 工具不存在');
-  if (!msgTool.description.match(/boss/i)) {
-    throw new Error(`msg description 应包含 boss 相关警告: ${msgTool.description}`);
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 提取 msg tool 的 description
+  const descMatch = mcpSrc.match(/registerTool\(\s*['"]msg['"][\s\S]*?description:\s*['"]([^'"]+)['"]/);
+  if (!descMatch) throw new Error('未找到 msg 工具的 description');
+  const desc = descMatch[1];
+  if (!desc.match(/boss/i)) {
+    throw new Error(`msg description 应包含 boss 相关警告: ${desc}`);
   }
 });
 
-check('P0: tools.js 中 msg execute 包含 boss 拦截逻辑', () => {
-  const toolsPath = path.resolve(import.meta.dirname, '../src/interfaces/plugin/tools.js');
-  const toolsSrc = fs.readFileSync(toolsPath, 'utf8');
-  // 应有 who === 'boss' 或类似的拦截检查
-  if (!toolsSrc.match(/['"]boss['"]/)) {
-    throw new Error('tools.js 中未找到 boss 字符串（拦截逻辑）');
+check('P0: mcp.js 中 msg handler 包含 boss 拦截逻辑', () => {
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // 应有 who === 'boss' 的拦截检查
+  if (!mcpSrc.match(/who\s*===\s*['"]boss['"]/)) {
+    throw new Error('mcp.js 中未找到 who === "boss" 拦截逻辑');
   }
-  // 应返回错误提示用户直接回复（中文或英文）
-  if (!toolsSrc.match(/直接回复|同一会话|reply directly|in your session/)) {
-    throw new Error('tools.js 中未找到 boss 拦截的错误提示');
+  // 应返回错误提示用户直接回复
+  if (!mcpSrc.match(/reply directly|in your session/)) {
+    throw new Error('mcp.js 中未找到 boss 拦截的错误提示');
   }
 });
 
-check('P0: 协作规则中包含 Boss 消息说明', () => {
-  const msgSrc = fs.readFileSync(
-    path.resolve(import.meta.dirname, '../src/capabilities/messaging.js'), 'utf8'
-  );
-  const toolsSrc = fs.readFileSync(
-    path.resolve(import.meta.dirname, '../src/interfaces/plugin/tools.js'), 'utf8'
-  );
-  const combined = msgSrc + toolsSrc;
-  // 协作规则中应有 Boss 消息相关说明
-  if (!combined.match(/[Bb]oss.*消息|消息.*[Bb]oss|[Bb]oss.*回复/)) {
-    // 也可能在 hooks 中
-    const hooksPath = path.resolve(import.meta.dirname, '../src/interfaces/plugin/hooks.js');
-    if (fs.existsSync(hooksPath)) {
-      const hooksSrc = fs.readFileSync(hooksPath, 'utf8');
-      if (!hooksSrc.match(/[Bb]oss/)) {
-        throw new Error('未在 messaging/tools/hooks 中找到 Boss 消息相关说明');
-      }
-    }
+check('P0: msg 工具 description 说明 boss 在会话内', () => {
+  const mcpPath = path.resolve(import.meta.dirname, '../src/server/mcp.js');
+  const mcpSrc = fs.readFileSync(mcpPath, 'utf8');
+  // description 应说明 boss 在同一会话内
+  if (!mcpSrc.match(/boss.*session|boss.*会话/i)) {
+    throw new Error('msg description 应说明 boss 在同一会话内');
   }
 });
 

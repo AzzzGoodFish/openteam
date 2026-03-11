@@ -2,8 +2,8 @@
  * OpenTeam Daemon — 团队生命周期的唯一 owner
  *
  * 运行在 tmux/zellij session 的 pane 0 中，拥有：
- * - serve 子进程（非 detach，生命周期绑定）
- * - agent panes（健康检查 + respawn）
+ * - openteam server（in-process HTTP + MCP）
+ * - agent panes（每个运行 wrapper，健康检查 + respawn）
  * - 嵌入式 dashboard
  */
 
@@ -13,8 +13,7 @@ import { saveRuntime, clearRuntime, findAvailablePort } from '../../foundation/s
 import { DEFAULTS, getSessionName } from '../../foundation/constants.js';
 import { createLogger } from '../../foundation/logger.js';
 import { cleanMuxEnv } from '../../foundation/terminal.js';
-import { ensureAgent, recoverSessions } from '../../capabilities/lifecycle.js';
-import { startServe, stopServe, onServeCrash } from './serve.js';
+import { startServe, stopServe } from './serve.js';
 import { createAllAgentPanes, checkAndRespawn } from './panes.js';
 import { createEmbeddedDashboard } from '../dashboard/index.js';
 
@@ -38,6 +37,7 @@ export async function runDaemon(teamName, projectDir, options = {}) {
   const teamConfig = loadTeamConfig(teamName);
   const agents = teamConfig.agents;
   const muxType = options.mux || 'tmux';
+  const cliType = options.cli || teamConfig.default_cli || 'claude-code';
   const sessionName = getSessionName(teamName, projectDir);
   const host = teamConfig.host || DEFAULTS.HOST;
   let port = teamConfig.port || options.port || 0;
@@ -46,54 +46,43 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     port = await findAvailablePort();
   }
 
-  log.info(`daemon starting team=${teamName} port=${port}`);
+  log.info(`daemon starting team=${teamName} port=${port} cli=${cliType}`);
   console.log(`OpenTeam Daemon — ${teamName}`);
   console.log(`  Port: ${port}`);
   console.log(`  Project: ${projectDir}`);
+  console.log(`  CLI: ${cliType}`);
   console.log(`  Agents: ${agents.join(', ')}`);
   console.log('');
 
-  // ── 1. 启动 serve ──
-  console.log('启动 serve...');
-  let serve = await startServe(teamName, projectDir, port, host);
-  console.log(`serve 就绪 (PID: ${serve.pid})`);
+  // ── 1. 启动 server（in-process）──
+  console.log('启动 server...');
+  const serve = await startServe({ teamName, projectDir, teamConfig, port, host });
+  console.log(`server 就绪 (${serve.url})`);
 
-  const buildRuntimeData = () => ({
+  saveRuntime(teamName, projectDir, {
     daemon: { pid: process.pid },
-    serve: { pid: serve.pid, port: serve.port, host: serve.host },
+    serve: { port: serve.port, host: serve.host },
     mux: { type: muxType, session: sessionName },
     team: teamName,
     projectDir,
     started: new Date().toISOString(),
   });
 
-  saveRuntime(teamName, projectDir, buildRuntimeData());
-
-  // ── 2. 恢复/创建 sessions ──
-  console.log('准备 agent sessions...');
-  const { recovered, cleaned } = await recoverSessions(teamName, projectDir, serve.url);
-  if (recovered > 0 || cleaned > 0) {
-    console.log(`  会话恢复: ${recovered} 个有效, ${cleaned} 个已清理`);
-  }
-
-  const sessionMap = new Map();
-  for (const agent of agents) {
-    const sessionId = await ensureAgent(teamName, agent, serve.url, projectDir);
-    if (sessionId) {
-      sessionMap.set(agent, sessionId);
-      console.log(`  ${agent}: ${sessionId}`);
-    } else {
-      console.error(`  ${agent}: 创建失败`);
-    }
-  }
+  // ── 2. wrapper 环境配置 ──
+  const wrapperOptions = {
+    serverUrl: serve.url,
+    teamName,
+    projectDir,
+    cliType,
+    agents,
+  };
 
   // ── 3. 创建 agent panes ──
-  // zellij: layout 已在 startSession 时创建好 stacked agents，agent-attach 自动连接
+  // zellij: layout 已在 startSession 时创建好 stacked agents
   // tmux:   需要动态创建 agent window
   if (muxType !== 'zellij') {
     console.log('创建 agent panes...');
-    const leader = teamConfig.leader;
-    createAllAgentPanes(muxType, sessionName, agents, serve.url, sessionMap, { leaderName: leader });
+    createAllAgentPanes(muxType, sessionName, agents, wrapperOptions, { leaderName: teamConfig.leader });
     try {
       const env = cleanMuxEnv();
       execSync(`tmux select-window -t "${sessionName}:0"`, { stdio: 'ignore', env });
@@ -102,32 +91,10 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     }
   }
 
-  // ── 4. serve 崩溃重启 ──
-  let restarting = false;
-  function handleServeCrash(code, signal) {
-    if (restarting) return;
-    restarting = true;
-    console.log(`\nserve 崩溃 (code=${code}, signal=${signal})，正在重启...`);
-    startServe(teamName, projectDir, port, host)
-      .then(newServe => {
-        serve = newServe;
-        saveRuntime(teamName, projectDir, buildRuntimeData());
-        onServeCrash(serve.process, handleServeCrash);
-        console.log(`serve 已重启 (PID: ${serve.pid})`);
-      })
-      .catch(e => {
-        console.error(`serve 重启失败: ${e.message}`);
-      })
-      .finally(() => {
-        restarting = false;
-      });
-  }
-  onServeCrash(serve.process, handleServeCrash);
-
-  // ── 5. 健康检查循环 ──
+  // ── 4. 健康检查循环 ──
   const healthInterval = setInterval(() => {
     try {
-      const { checked, respawned } = checkAndRespawn(muxType, sessionName, teamName, projectDir, serve.url);
+      const { checked, respawned } = checkAndRespawn(muxType, sessionName, wrapperOptions);
       if (respawned > 0) {
         log.info(`health check: ${checked} panes checked, ${respawned} respawned`);
       }
@@ -136,17 +103,17 @@ export async function runDaemon(teamName, projectDir, options = {}) {
     }
   }, HEALTH_CHECK_INTERVAL);
 
-  // ── 6. 启动嵌入式 dashboard ──
+  // ── 5. 启动嵌入式 dashboard ──
   console.log('启动 dashboard...\n');
   const dash = createEmbeddedDashboard(teamName, projectDir, serve.url);
   dash.start();
 
-  // ── 7. 信号处理 — 优雅关闭 ──
+  // ── 6. 信号处理 — 优雅关闭 ──
   const shutdown = async (signal) => {
     log.info(`received ${signal}, shutting down...`);
     clearInterval(healthInterval);
     dash.stop();
-    await stopServe(serve.process);
+    await stopServe(serve.close);
     clearRuntime(teamName, projectDir);
     log.info('daemon stopped');
     process.exit(0);

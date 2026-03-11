@@ -1,6 +1,9 @@
 /**
- * 统一状态持久化（合并原 .runtime.json + .active-sessions.json → .state.json）
+ * 统一状态持久化（.state.json）
  * 状态文件在 shutdown 后保留，停止的实例仍可被扫描发现
+ *
+ * v2: agent 在线状态由 server hub 内存管理（wrapper 注册/注销），
+ * 不再需要 session 相关的文件持久化函数。
  */
 
 import fs from 'fs';
@@ -33,7 +36,7 @@ function loadState(teamName, projectDir) {
   // 迁移旧格式文件
   const stateDir = getTeamStateDir(teamName, projectDir);
   const oldRuntimePath = path.join(stateDir, FILES.RUNTIME);
-  const oldSessionsPath = path.join(stateDir, FILES.ACTIVE_SESSIONS);
+  const oldSessionsPath = path.join(stateDir, '.active-sessions.json');
 
   const state = {};
   if (fs.existsSync(oldRuntimePath)) {
@@ -64,17 +67,13 @@ function saveState(teamName, projectDir, state) {
 
 /**
  * 统一 runtime 格式（兼容旧格式 { pid, host, port } → 新格式 { daemon, serve, ... }）
- * 所有消费者使用 normalized 字段，旧格式映射集中在此一处
- *
- * TODO v2: serve → server 命名迁移（servePid → serverPid, serveHost → serverHost, servePort → serverPort）
- * 对应 openteam server 而非 opencode serve，待后续阶段统一修改以避免连锁变更
  */
 function normalizeRuntime(raw) {
   if (!raw) return null;
   return {
+    daemon:     raw.daemon    ?? null,
+    serve:      raw.serve     ?? null,
     daemonPid:  raw.daemon?.pid  ?? raw.pid  ?? null,
-    servePid:   raw.serve?.pid   ?? raw.pid  ?? null,
-    serveHost:  raw.serve?.host  ?? raw.host ?? null,
     servePort:  raw.serve?.port  ?? raw.port ?? null,
     mux:        raw.mux        ?? null,
     projectDir: raw.projectDir ?? null,
@@ -103,18 +102,14 @@ export function getRuntime(teamName, projectDir, meta = null) {
       process.kill(runtime.daemonPid, 0);
       if (meta?.trace) {
         log.info('getRuntime.hit', {
-          trace: meta.trace,
-          teamName,
+          trace: meta.trace, teamName,
           daemonPid: runtime.daemonPid,
-          serveHost: runtime.serveHost,
-          servePort: runtime.servePort,
           reason: meta.reason,
         });
       }
       return runtime;
     } catch {
       if (meta?.trace) log.warn('getRuntime.stalePid', { trace: meta.trace, teamName, daemonPid: runtime.daemonPid, reason: meta.reason });
-      // 不删除文件 — 状态文件持久保留
       return null;
     }
   }
@@ -124,16 +119,14 @@ export function getRuntime(teamName, projectDir, meta = null) {
 }
 
 /**
- * Save runtime configuration（保留 sessions）
+ * Save runtime configuration
  */
 export function saveRuntime(teamName, projectDir, runtimeData) {
-  const state = loadState(teamName, projectDir);
-  const sessions = state.sessions || {};
-  saveState(teamName, projectDir, { ...runtimeData, sessions });
+  saveState(teamName, projectDir, runtimeData);
 }
 
 /**
- * Clear runtime configuration（保留 projectDir/team/sessions/started）
+ * Clear runtime configuration（保留 projectDir/team/started）
  */
 export function clearRuntime(teamName, projectDir) {
   const state = loadState(teamName, projectDir);
@@ -142,40 +135,7 @@ export function clearRuntime(teamName, projectDir) {
     projectDir: state.projectDir,
     team: state.team,
     started: state.started,
-    sessions: state.sessions || {},
   });
-}
-
-/**
- * Check if serve is running for a team
- */
-export function isServeRunning(teamName, projectDir) {
-  const runtime = getRuntime(teamName, projectDir);
-  if (!runtime?.servePid) return false;
-  try {
-    process.kill(runtime.servePid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Get serve URL for a team
- */
-export function getServeUrl(teamName, projectDir, meta = null) {
-  const runtime = getRuntime(teamName, projectDir, meta);
-  if (!runtime) {
-    if (meta?.trace) log.warn('getServeUrl.runtimeMissing', { trace: meta.trace, teamName, reason: meta.reason });
-    return null;
-  }
-  if (!runtime.serveHost || !runtime.servePort) {
-    if (meta?.trace) log.warn('getServeUrl.incompleteRuntime', { trace: meta.trace, teamName, host: runtime.serveHost, port: runtime.servePort, reason: meta.reason });
-    return null;
-  }
-  const url = `http://${runtime.serveHost}:${runtime.servePort}`;
-  if (meta?.trace) log.info('getServeUrl.hit', { trace: meta.trace, teamName, url, reason: meta.reason });
-  return url;
 }
 
 /**
@@ -199,105 +159,6 @@ export async function findAvailablePort() {
   }
 
   throw new Error('No available port found');
-}
-
-// ─── Session 函数 ───────────────────────────────────────────
-// v2: 以下 session 函数待阶段 2 server hub 替代后移除
-// agent 在线状态将由 server hub 内存管理（wrapper 注册/注销），不再需要文件持久化
-
-/**
- * Load active sessions（读取时统一格式：每个 agent → [{ sessionId, cwd, ... }]）
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function loadActiveSessions(teamName, projectDir) {
-  const state = loadState(teamName, projectDir);
-  const raw = state.sessions || {};
-
-  // 统一旧格式（agent → "sessionId" 字符串）为数组
-  for (const [agent, value] of Object.entries(raw)) {
-    if (typeof value === 'string') {
-      raw[agent] = [{ sessionId: value, cwd: null }];
-    } else if (!Array.isArray(value)) {
-      raw[agent] = [];
-    }
-  }
-  return raw;
-}
-
-/**
- * Save active sessions（保留 runtime 字段）
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function saveActiveSessions(teamName, projectDir, sessions) {
-  const state = loadState(teamName, projectDir);
-  state.sessions = sessions;
-  saveState(teamName, projectDir, state);
-}
-
-/**
- * Get all instances for an agent
- * Returns array of { sessionId, cwd, alias? }
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function getAgentInstances(teamName, projectDir, agentName) {
-  const sessions = loadActiveSessions(teamName, projectDir);
-  return sessions[agentName] || [];
-}
-
-/**
- * Find instance by cwd or alias
- * Returns { sessionId, cwd, alias? } or null
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function findInstance(teamName, projectDir, agentName, { cwd, alias }) {
-  const instances = getAgentInstances(teamName, projectDir, agentName);
-  if (alias) {
-    return instances.find((i) => i.alias === alias) || null;
-  }
-  if (cwd) {
-    return instances.find((i) => i.cwd === cwd) || null;
-  }
-  return null;
-}
-
-/**
- * Add or update an instance for an agent
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function addInstance(teamName, projectDir, agentName, { sessionId, cwd, alias }) {
-  const sessions = loadActiveSessions(teamName, projectDir);
-  let instances = sessions[agentName] || [];
-
-  // Remove existing instance with same cwd
-  instances = instances.filter((i) => i.cwd !== cwd);
-
-  // Add new instance
-  const newInstance = { sessionId, cwd };
-  if (alias) newInstance.alias = alias;
-  instances.push(newInstance);
-
-  sessions[agentName] = instances;
-  saveActiveSessions(teamName, projectDir, sessions);
-}
-
-/**
- * Remove an instance by cwd or alias
- * @deprecated v2: 待 server hub 替代后移除
- */
-export function removeInstance(teamName, projectDir, agentName, { cwd, alias }) {
-  const sessions = loadActiveSessions(teamName, projectDir);
-  let instances = sessions[agentName];
-
-  if (!instances || instances.length === 0) return;
-
-  if (alias) {
-    instances = instances.filter((i) => i.alias !== alias);
-  } else if (cwd) {
-    instances = instances.filter((i) => i.cwd !== cwd);
-  }
-
-  sessions[agentName] = instances;
-  saveActiveSessions(teamName, projectDir, sessions);
 }
 
 // ─── 扫描函数 ───────────────────────────────────────────────
@@ -347,8 +208,7 @@ export function listInstances(teamName) {
 }
 
 /**
- * 扫描团队的所有运行实例（按 hash 子目录）
- * @returns {Array<{ projectDir: string, runtime: object, hash: string }>}
+ * 扫描团队的所有运行实例
  */
 export function listRunningInstances(teamName) {
   return listInstances(teamName).filter(i => i.alive);
@@ -377,7 +237,6 @@ export function listAllInstances() {
 
 /**
  * 扫描所有团队的所有运行实例
- * @returns {Array<{ teamName: string, projectDir: string, runtime: object, hash: string }>}
  */
 export function listAllRunningInstances() {
   return listAllInstances().filter(i => i.alive);

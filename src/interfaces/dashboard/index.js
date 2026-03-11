@@ -6,7 +6,7 @@
  * - 嵌入 daemon：`createEmbeddedDashboard(teamName, serveUrl)` — 由 daemon 管理生命周期
  */
 
-import { getServeUrl, isServeRunning } from '../../foundation/state.js';
+import { getRuntime } from '../../foundation/state.js';
 import { createDashboard, updateHeader, updateTeamStatus, updateAgentStatus, updateTaskBoard, updateMessageStream } from './ui.js';
 import { fetchTeamStatus, fetchAgentStatus, fetchMessageStream, fetchTaskBoard } from './data.js';
 
@@ -16,13 +16,14 @@ const REFRESH_INTERVAL = 3000;
  * 独立模式：启动 Dashboard（原有行为不变）
  */
 export async function dashboard(teamName, projectDir) {
-  if (!isServeRunning(teamName, projectDir)) {
+  const runtime = getRuntime(teamName, projectDir);
+  if (!runtime?.daemon?.pid) {
     console.error(`\x1b[31m错误:\x1b[0m 团队 ${teamName} 未运行`);
     console.log(`请先运行: openteam start ${teamName}`);
     process.exit(1);
   }
 
-  const serveUrl = getServeUrl(teamName, projectDir);
+  const serveUrl = `http://${runtime.serve?.host || '127.0.0.1'}:${runtime.serve?.port}`;
   const ui = createDashboard(teamName);
 
   await refreshDashboard(ui, teamName, projectDir, serveUrl);

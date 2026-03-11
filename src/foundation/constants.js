@@ -5,11 +5,6 @@ import crypto from 'crypto';
 const homeDir = os.homedir();
 
 export const PATHS = {
-  // v1 遗留路径（其他模块仍在引用，待后续阶段清理）
-  OPENCODE_DIR: path.join(homeDir, '.opencode'),
-  AGENTS_DIR: path.join(homeDir, '.opencode/agents'),
-
-  // v2 路径
   OPENTEAM_DIR: path.join(homeDir, '.openteam'),
   SETTINGS: path.join(homeDir, '.openteam', 'settings.json'),
   AGENTS_DEFS_DIR: path.join(homeDir, '.openteam', 'agents'),   // agent 定义（所有团队共享）
@@ -20,8 +15,7 @@ export const PATHS = {
 export const FILES = {
   TEAM_CONFIG: 'team.json',
   STATE: '.state.json',
-  RUNTIME: '.runtime.json',              // v1 遗留，迁移兼容用
-  ACTIVE_SESSIONS: '.active-sessions.json', // v2: 待移除 — agent 在线状态由 server hub 内存管理
+  RUNTIME: '.runtime.json',              // 迁移兼容用
   TASKS: '.tasks.json',
 };
 

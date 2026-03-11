@@ -88,7 +88,6 @@ export function setupMcpTools(mcpServer, hub, getAgentFromSession, teamContext) 
       }
 
       if (action === 'list') {
-        // list 是纯读取，直接复用 capabilities 层
         const { listTasks } = await import('../capabilities/taskboard.js');
         const tasks = listTasks(teamName, projectDir);
         if (tasks.length === 0) {
@@ -97,13 +96,64 @@ export function setupMcpTools(mcpServer, hub, getAgentFromSession, teamContext) 
         const formatted = tasks.map(t => {
           const status = t.status === 'done' ? '\u2713' : '\u23f3';
           const deps = t.dependsOn.length > 0 ? ` (depends on ${t.dependsOn.map(d => '#' + d).join(',')})` : '';
-          return `#${t.id} ${status} ${t.title} \u2192 ${t.assignee}${deps}`;
+          return `#${t.id} ${status} ${t.title} → ${t.assignee}${deps}`;
         }).join('\n');
         return { content: [{ type: 'text', text: formatted }] };
       }
 
-      // create 和 done 需要 deliverMessage 适配 hub，阶段 4 接入
-      return { content: [{ type: 'text', text: `TODO: taskboard ${action} not yet wired to hub` }] };
+      if (action === 'create') {
+        // 仅 leader 可创建任务
+        const isLeader = callerAgent === teamConfig.leader;
+        if (!isLeader) {
+          return { content: [{ type: 'text', text: 'Error: only the leader can create tasks' }] };
+        }
+        if (!title || !assignee) {
+          return { content: [{ type: 'text', text: 'Error: title and assignee are required for create' }] };
+        }
+
+        const { createTask } = await import('../capabilities/taskboard.js');
+        const result = await createTask({
+          teamName, projectDir, hub,
+          title, description: description || '', assignee,
+          dependsOn: depends_on || [],
+          trace: `mcp:${callerAgent}`,
+        });
+
+        if (!result.ok) {
+          return { content: [{ type: 'text', text: `Error: ${result.error}` }] };
+        }
+
+        const lines = [`Created #${result.task.id}: ${result.task.title} → ${result.task.assignee}`];
+        if (result.triggered.length > 0) {
+          lines.push(`Notified: ${result.triggered.join(', ')}`);
+        }
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      if (action === 'done') {
+        if (id == null) {
+          return { content: [{ type: 'text', text: 'Error: id is required for done' }] };
+        }
+
+        const { completeTask } = await import('../capabilities/taskboard.js');
+        const result = await completeTask({
+          teamName, projectDir, hub,
+          agentName: callerAgent, taskId: id,
+          trace: `mcp:${callerAgent}`,
+        });
+
+        if (!result.ok) {
+          return { content: [{ type: 'text', text: `Error: ${result.error}` }] };
+        }
+
+        const lines = [`Done #${result.task.id}: ${result.task.title}`];
+        if (result.triggered.length > 0) {
+          lines.push(`Unblocked: ${result.triggered.join(', ')}`);
+        }
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      return { content: [{ type: 'text', text: `Error: unknown action "${action}". Available: create, done, list` }] };
     }
   );
 

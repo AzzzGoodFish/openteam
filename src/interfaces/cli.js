@@ -2,23 +2,18 @@
  * CLI 命令实现 — 编排 capabilities 和 foundation 完成用户操作
  */
 
-import { execSync } from 'child_process';
 import { getSessionName, getSessionPrefix } from '../foundation/constants.js';
-import { loadTeamConfig, getTeamLeader, listTeams, isAgentInTeam, validateTeamConfig } from '../foundation/config.js';
+import { loadTeamConfig, listTeams, validateTeamConfig } from '../foundation/config.js';
 import {
   getRuntime,
   clearRuntime,
-  getServeUrl,
   findAvailablePort,
-  loadActiveSessions,
-  getAgentInstances,
   listRunningInstances,
   listAllRunningInstances,
   listAllInstances,
 } from '../foundation/state.js';
-import { sessionExists, fetchSession } from '../foundation/opencode.js';
 import { detectMultiplexer, getSessionState, hasSession, findSessionsByPrefix, attachSession, startSession, killSession, isInsideMux } from '../foundation/terminal.js';
-import { ensureAgent } from '../capabilities/lifecycle.js';
+import { buildWrapperCmd } from './daemon/panes.js';
 
 // ── 输出辅助 ──
 
@@ -117,6 +112,7 @@ export async function cmdStart(teamName, options) {
     error('未找到 tmux 或 zellij，请先安装其中一个');
   }
 
+  const cliType = options.cli || teamConfig.default_cli || 'claude-code';
   const sessionName = getSessionName(teamName, projectDir);
   const sessionState = getSessionState(mux, sessionName);
 
@@ -154,17 +150,23 @@ export async function cmdStart(teamName, options) {
     port = await findAvailablePort();
   }
 
-  const daemonCmd = `openteam daemon ${teamName} --port ${port} --dir "${projectDir}" --mux ${mux}`;
+  const daemonCmd = `openteam daemon ${teamName} --port ${port} --dir "${projectDir}" --mux ${mux} --cli ${cliType}`;
 
-  // zellij: 构建 agent-attach 命令，由 team layout 的 stacked panes 自动调用
+  // zellij: 构建 wrapper 命令，由 team layout 的 stacked panes 自动调用
+  const wrapperOptions = {
+    serverUrl: `http://127.0.0.1:${port}`,
+    teamName, projectDir, cliType,
+    agents: teamConfig.agents,
+  };
   const agentCmds = mux === 'zellij' ? teamConfig.agents.map(agent => ({
     name: agent,
-    cmd: `openteam agent-attach ${teamName} ${agent} --dir "${projectDir}"`,
+    cmd: buildWrapperCmd(agent, wrapperOptions, { mux, sessionName }),
     expanded: agent === teamConfig.leader,
   })) : [];
 
   info(`启动 ${teamName} 团队...`);
   console.log(`  复用器: ${mux}`);
+  console.log(`  CLI:    ${cliType}`);
   console.log(`  端口:   ${port}`);
   console.log(`  项目:   ${projectDir}`);
   console.log(`  Leader: ${teamConfig.leader}`);
@@ -179,35 +181,6 @@ export async function cmdStart(teamName, options) {
     success('团队已在后台启动');
     console.log(`使用 'openteam start ${teamName}' 进入团队`);
   }
-}
-
-/**
- * 附加到 agent 会话
- */
-export async function cmdAttach(teamName, agentName, options = {}) {
-  teamName = teamName || 'team1';
-
-  const { projectDir, runtime } = resolveInstance(teamName, options);
-  const serveUrl = getServeUrl(teamName, projectDir);
-
-  if (!agentName) {
-    agentName = getTeamLeader(teamName);
-  }
-
-  if (!isAgentInTeam(teamName, agentName)) {
-    const teamConfig = loadTeamConfig(teamName);
-    error(`团队 ${teamName} 中没有 ${agentName}，可选: ${teamConfig.agents.join(', ')}`);
-  }
-
-  info(`附加到 ${teamName}/${agentName}...`);
-
-  const sessionId = await ensureAgent(teamName, agentName, serveUrl, runtime.projectDir);
-  if (!sessionId) {
-    error(`无法获取 ${agentName} 会话`);
-  }
-
-  success(`会话: ${sessionId}`);
-  execSync(`opencode attach "${serveUrl}" -s "${sessionId}"`, { stdio: 'inherit' });
 }
 
 /**
@@ -244,7 +217,7 @@ export function cmdList(options = {}) {
       project: inst.projectDir,
       leader,
       members: others,
-      port: String(inst.runtime.servePort || '—'),
+      port: String(inst.runtime.serve?.port || inst.runtime.servePort || '—'),
       created: relativeTime(inst.started),
     });
   }
@@ -267,10 +240,10 @@ export function cmdList(options = {}) {
     // 从未运行过的团队（没有任何状态文件）
     const teamsWithInstances = new Set(fullList.map(i => i.teamName));
     const neverRunTeams = listTeams().filter(t => !teamsWithInstances.has(t));
-    for (const teamName of neverRunTeams) {
-      const { leader, others } = getTeamMembers(teamName);
+    for (const tn of neverRunTeams) {
+      const { leader, others } = getTeamMembers(tn);
       rows.push({
-        id: '—', team: teamName,
+        id: '—', team: tn,
         status: 'Created',
         project: '—',
         leader, members: others, port: '—',
@@ -311,7 +284,7 @@ export function cmdList(options = {}) {
  */
 function stopInstance(inst) {
   const { teamName, projectDir, runtime } = inst;
-  const daemonPid = runtime.daemonPid;
+  const daemonPid = runtime.daemon?.pid || runtime.daemonPid;
   const sessionName = runtime.mux?.session;
   info(`停止团队 ${teamName} (daemon PID: ${daemonPid})...`);
 
@@ -321,7 +294,7 @@ function stopInstance(inst) {
     // 进程已不存在
   }
 
-  // 等 daemon 退出，然后清理 mux session（daemon 只管 serve + runtime，不管 session）
+  // 等 daemon 退出，然后清理 mux session（daemon 只管 server + runtime，不管 session）
   setTimeout(() => {
     if (sessionName) {
       killSession(sessionName);
@@ -380,7 +353,7 @@ export function cmdStop(target) {
 }
 
 /**
- * 深入查看团队运行状态与会话有效性
+ * 查看团队运行状态（从 runtime + server API 获取）
  */
 export async function cmdInspect(teamName, options = {}) {
   if (!teamName) {
@@ -388,37 +361,42 @@ export async function cmdInspect(teamName, options = {}) {
   }
 
   const { projectDir, runtime } = resolveInstance(teamName, options);
-
   const teamConfig = loadTeamConfig(teamName);
   const leader = teamConfig?.leader || `${RED}未配置${NC}`;
-  const serveUrl = getServeUrl(teamName, projectDir);
+  const serveUrl = runtime.serve ? `http://${runtime.serve.host}:${runtime.serve.port}` : 'N/A';
 
   console.log(`团队: ${GREEN}${teamName}${NC}`);
   console.log(`状态: ${GREEN}运行中${NC}`);
-  if (runtime.daemonPid) {
-    console.log(`Daemon: PID ${runtime.daemonPid}`);
+  if (runtime.daemon?.pid) {
+    console.log(`Daemon: PID ${runtime.daemon.pid}`);
   }
-  console.log(`Serve: ${serveUrl} (PID: ${runtime.servePid})`);
+  console.log(`Server: ${serveUrl}`);
   console.log(`Leader: ${leader}`);
-  console.log(`项目: ${runtime.projectDir}`);
+  console.log(`项目: ${runtime.projectDir || projectDir}`);
   console.log(`启动于: ${runtime.started}`);
   console.log('');
 
-  console.log('活跃会话:');
-  const activeSessions = loadActiveSessions(teamName, projectDir);
-
-  for (const [agent, instances] of Object.entries(activeSessions)) {
-    for (const inst of instances) {
-      const exists = await sessionExists(serveUrl, inst.sessionId);
-      const cwdHint = inst.cwd ? ` @ ${inst.cwd}` : '';
-      if (exists) {
-        const session = await fetchSession(serveUrl, inst.sessionId);
-        const title = session?.title || 'Untitled';
-        console.log(`  - ${agent}: ${inst.sessionId} (${title})${cwdHint}`);
-      } else {
-        console.log(`  - ${agent}: ${inst.sessionId} ${RED}(已失效)${NC}${cwdHint}`);
+  // 从 server API 获取 agent 状态
+  try {
+    const res = await fetch(`${serveUrl}/api/status`);
+    if (res.ok) {
+      const data = await res.json();
+      const status = data.status || {};
+      console.log('Agent 状态:');
+      for (const agent of teamConfig.agents) {
+        const info = status[agent];
+        if (info?.online) {
+          const pending = info.pending > 0 ? ` (${info.pending} pending)` : '';
+          console.log(`  ${GREEN}●${NC} ${agent}${pending}`);
+        } else {
+          console.log(`  ${RED}○${NC} ${agent} ${DIM}(offline)${NC}`);
+        }
       }
+    } else {
+      console.log(`${YELLOW}Server 不可达${NC}`);
     }
+  } catch {
+    console.log(`${YELLOW}Server 不可达${NC}`);
   }
 }
 
@@ -431,32 +409,4 @@ export async function cmdDashboard(teamName, options = {}) {
   await dashboard(teamName, projectDir);
 }
 
-/**
- * 等待 agent 会话就绪后 attach（由 zellij team layout 自动调用）
- *
- * 轮询 state 文件，直到 serve URL + session ID 可用，然后 exec 到 opencode attach。
- * 超时 120s — 考虑 serve 启动 + session 创建耗时。
- */
-export async function cmdAgentAttach(teamName, agentName, options = {}) {
-  const projectDir = options.dir || process.cwd();
-  const timeout = 120000;
-  const start = Date.now();
 
-  console.log(`等待 ${agentName} 会话就绪...`);
-
-  while (Date.now() - start < timeout) {
-    const serveUrl = getServeUrl(teamName, projectDir);
-    if (serveUrl) {
-      const instances = getAgentInstances(teamName, projectDir, agentName);
-      if (instances.length > 0) {
-        console.log(`连接到 ${agentName}...`);
-        execSync(`opencode attach "${serveUrl}" -s "${instances[0].sessionId}"`, { stdio: 'inherit' });
-        return;
-      }
-    }
-    await new Promise(r => setTimeout(r, 500));
-  }
-
-  console.error(`${RED}超时:${NC} ${agentName} 会话未在 ${timeout / 1000}s 内就绪`);
-  process.exit(1);
-}
