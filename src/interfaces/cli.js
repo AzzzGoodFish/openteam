@@ -156,12 +156,15 @@ export async function cmdStart(teamName, options) {
   const daemonCmd = `openteam daemon ${teamName} --port ${port} --dir "${projectDir}" --mux ${mux} --cli ${cliType}`;
 
   // zellij: 构建 wrapper 命令，由 team layout 的 stacked panes 自动调用
-  const cliArgs = teamConfig.cli_config?.[cliType]?.args || [];
+  const cliConf = teamConfig.cli_config?.[cliType] || {};
+  const cliArgs = cliConf.args || [];
+  const keepDefaultSP = !!cliConf.keep_default_system_prompt;
   const wrapperOptions = {
     serverUrl: `http://127.0.0.1:${port}`,
     teamName, projectDir, cliType,
     agents: teamConfig.agents,
     cliArgs,
+    keepDefaultSP,
   };
   const agentCmds = mux === 'zellij' ? teamConfig.agents.map(agent => ({
     name: agent,
