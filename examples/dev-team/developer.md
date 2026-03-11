@@ -1,4 +1,5 @@
 ---
+name: developer
 description: Developer — code implementation, unit testing, and disciplined execution
 skills:
   - incremental-implementation

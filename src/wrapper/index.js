@@ -60,7 +60,7 @@ async function main() {
   const mcpConfigPath = writeMcpConfig(adapter, serverUrl, agent, projectDir);
 
   // ── 3. 构建系统提示词 ──
-  const systemPrompt = buildSystemPrompt(agent, team, agents);
+  const systemPrompt = buildSystemPrompt(agent, team, agents, cliType);
 
   // ── 4. 创建 PTY，启动 CLI ──
   const cliLaunchArgs = adapter.buildLaunchArgs({ agent, systemPrompt, mcpConfigPath, cwd: projectDir, extraArgs: cliArgs });
@@ -238,7 +238,7 @@ function cleanupMcpConfig(configPath) {
 
 // ── 系统提示词 ──
 
-function buildSystemPrompt(agent, team, agents) {
+function buildSystemPrompt(agent, team, agents, cliType) {
   const teammates = agents.filter(a => a !== agent);
   const lines = [
     `You are agent "${agent}" in team "${team}".`,
@@ -253,6 +253,20 @@ function buildSystemPrompt(agent, team, agents) {
     'NEVER use msg(who="boss") — boss is in your session, not an agent.',
     'Use taskboard tool to manage tasks: create (leader only), done, list.',
   );
+
+  // Claude Code 特有：记忆目录隔离
+  if (cliType === 'claude-code') {
+    lines.push(
+      '',
+      `Memory isolation: You are "${agent}" in a multi-agent team. To avoid conflicts with other agents' memory files, ` +
+      `store ALL your memory files (MEMORY.md, WORKING.md, topic files) under the subdirectory "memory/${agent}/" ` +
+      `instead of the default "memory/" directory. ` +
+      `Example: use "memory/${agent}/MEMORY.md" instead of "memory/MEMORY.md", ` +
+      `"memory/${agent}/WORKING.md" instead of "memory/WORKING.md". ` +
+      'This ensures each agent has isolated persistent state.',
+    );
+  }
+
   return lines.join(' ');
 }
 

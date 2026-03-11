@@ -1,4 +1,5 @@
 ---
+name: architect
 description: Architect — system design, code structure stewardship, and technical decision-making
 skills:
   - codebase-mapping

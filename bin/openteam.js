@@ -7,7 +7,7 @@
 import { createRequire } from 'module';
 import { program } from 'commander';
 import {
-  cmdStart, cmdList, cmdStop,
+  cmdSetup, cmdStart, cmdList, cmdStop,
   cmdInspect, cmdDashboard,
 } from '../src/interfaces/cli.js';
 
@@ -15,6 +15,15 @@ const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
 
 program.name('openteam').description('Agent team collaboration framework').version(version);
+
+program
+  .command('setup')
+  .description('安装内置团队模板')
+  .option('--template <name>', '模板名称')
+  .option('--name <team>', '团队名称')
+  .option('--cli <type>', '默认 CLI 类型')
+  .option('--bypass', '启用 yolo 模式')
+  .action(cmdSetup);
 
 program
   .command('start [team]')

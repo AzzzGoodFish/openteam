@@ -1,4 +1,5 @@
 ---
+name: pm
 description: Product Manager — requirements ownership, clarification, and team coordination
 skills:
   - requirement-clarification

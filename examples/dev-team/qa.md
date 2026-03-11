@@ -1,4 +1,5 @@
 ---
+name: qa
 description: QA Engineer — independent verification, acceptance testing, and quality gate
 skills:
   - test-plan-design
