@@ -115,18 +115,24 @@ async function main() {
 
   // ── 5. 启动消息轮询 ──
   let polling = true;
+  let injecting = false; // 注入锁，防止轮询重入导致消息交叉
   const pollTimer = setInterval(async () => {
-    if (!polling) return;
+    if (!polling || injecting) return;
     try {
       // 上报活动状态
       const active = (Date.now() - lastPtyOutput) < ACTIVE_THRESHOLD;
       heartbeat(serverUrl, agent, active).catch(() => {});
 
       const messages = await pullMessages(serverUrl, agent);
-      for (const msg of messages) {
-        injectMessage(ptyProcess, msg.message);
+      if (messages.length > 0) {
+        injecting = true;
+        for (const msg of messages) {
+          await injectMessage(ptyProcess, msg.message);
+        }
+        injecting = false;
       }
     } catch (err) {
+      injecting = false;
       log.warn('wrapper.poll.error', { error: err.message });
     }
   }, POLL_INTERVAL);
@@ -160,20 +166,30 @@ async function main() {
 
 // ── 消息注入 ──
 
+const INJECT_ENTER_DELAY = 200;    // 写入文本后等待 TUI 渲染再发 Enter
+const INJECT_BETWEEN_DELAY = 300;  // 两条消息之间的间隔，确保前一条已提交
+
 /**
  * 通过 PTY master 注入消息到 CLI
- * 使用 bracketed paste 模式，防止多行消息被逐行执行
+ * 返回 Promise，resolve 后才能注入下一条
  */
 function injectMessage(ptyProcess, message) {
-  try {
-    // 消息中的 \n 保持原样 — claude code 中 \n(0x0a) = 换行，\r(0x0d) = 提交
-    ptyProcess.write(message);
-    // 延迟发送 Enter 提交 — 确保 TUI 完成文本渲染
-    setTimeout(() => ptyProcess.write('\r'), 100);
-    log.info('wrapper.inject.ok', { preview: message.slice(0, 50) });
-  } catch (err) {
-    log.warn('wrapper.inject.failed', { error: err.message, preview: message.slice(0, 50) });
-  }
+  return new Promise((resolve) => {
+    try {
+      // 消息中的 \n 保持原样 — claude code 中 \n(0x0a) = 换行，\r(0x0d) = 提交
+      ptyProcess.write(message);
+      // 延迟发送 Enter 提交 — 确保 TUI 完成文本渲染
+      setTimeout(() => {
+        ptyProcess.write('\r');
+        log.info('wrapper.inject.ok', { preview: message.slice(0, 50) });
+        // 再等一段时间让 TUI 处理提交，然后才允许下一条
+        setTimeout(resolve, INJECT_BETWEEN_DELAY);
+      }, INJECT_ENTER_DELAY);
+    } catch (err) {
+      log.warn('wrapper.inject.failed', { error: err.message, preview: message.slice(0, 50) });
+      resolve();
+    }
+  });
 }
 
 // ── HTTP 辅助函数 ──
