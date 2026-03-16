@@ -63,7 +63,7 @@ async function main() {
   const mcpConfigPath = writeMcpConfig(adapter, serverUrl, agent, projectDir);
 
   // ── 3. 构建系统提示词 + 注入策略 ──
-  const systemPrompt = buildSystemPrompt(agent, team, agents, cliType);
+  const systemPrompt = buildSystemPrompt(agent, team, agents, cliType, adapter);
   let systemPromptFile = null;
 
   if (keepDefaultSP) {
@@ -302,7 +302,7 @@ function cleanupTempFile(filePath) {
 
 // ── 系统提示词 ──
 
-function buildSystemPrompt(agent, team, agents, cliType) {
+function buildSystemPrompt(agent, team, agents, cliType, adapter) {
   const teammates = agents.filter(a => a !== agent);
   const lines = [
     `You are agent "${agent}" in team "${team}".`,
@@ -311,12 +311,15 @@ function buildSystemPrompt(agent, team, agents, cliType) {
     lines.push(`Team members: ${agents.join(', ')}. Your teammates: ${teammates.join(', ')}.`);
   }
   lines.push(
-    'Use the msg tool to communicate with other agents.',
+    'Use the msg tool to communicate with other agents. You MUST actually invoke the tool — never just claim you sent a message.',
     'Messages without [from xxx] prefix are from the boss — reply directly in your output.',
     'Messages with [from <agent>] are from team agents — reply using msg tool.',
     'NEVER use msg(who="boss") — boss is in your session, not an agent.',
     'Use taskboard tool to manage tasks: create (leader only), done, list.',
   );
+
+  // adapter 提供 CLI 特定的工具调用指引
+  lines.push('', adapter.buildToolGuide());
 
   // Claude Code 特有：记忆目录隔离
   if (cliType === 'claude-code') {
@@ -331,7 +334,7 @@ function buildSystemPrompt(agent, team, agents, cliType) {
     );
   }
 
-  return lines.join(' ');
+  return lines.join('\n');
 }
 
 main().catch(err => {

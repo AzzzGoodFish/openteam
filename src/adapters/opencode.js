@@ -30,6 +30,11 @@ export class OpenCodeAdapter extends BaseAdapter {
     };
   }
 
+  buildToolGuide() {
+    // TODO: opencode 的 MCP 工具命名规则待确认
+    return 'Use the openteam MCP server tools: msg (messaging) and taskboard (task management).';
+  }
+
   getMcpConfigPath(projectDir, agent) {
     // TODO: opencode 的 MCP 配置路径待确认
     return path.join(os.tmpdir(), `openteam-mcp-opencode-${agent}-${encodeURIComponent(path.basename(projectDir))}.json`);

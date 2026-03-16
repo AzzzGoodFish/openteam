@@ -43,6 +43,15 @@ export class BaseAdapter {
   }
 
   /**
+   * 返回 CLI 特定的工具调用指引，追加到系统提示词中。
+   * 不同 CLI 对 MCP 工具有不同的命名/调用约定，需要显式告知 agent。
+   * @returns {string} 工具调用指引文本
+   */
+  buildToolGuide() {
+    throw new Error('subclass must implement buildToolGuide');
+  }
+
+  /**
    * MCP 配置文件路径（每个 agent 独立，避免多 agent 覆盖冲突）
    * @param {string} projectDir - 项目目录
    * @param {string} agent - agent 名称

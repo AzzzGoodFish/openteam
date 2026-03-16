@@ -1,10 +1,9 @@
 /**
  * 日志系统
  *
- * error 级别始终写入日志文件（无需配置）
- * debug/info/warn 需要启用：
- *   OPENTEAM_LOG=1       启用日志
- *   OPENTEAM_LOG_LEVEL=debug|info|warn|error
+ * info/warn/error 默认写入日志文件，无需配置。
+ * debug 需要启用：
+ *   OPENTEAM_DEBUG=1      启用 debug 级别日志
  *   OPENTEAM_LOG_STDERR=1 调试时镜像到 stderr（便于 daemon/serve 捕获）
  *
  * 日志文件: ~/.openteam/openteam.log
@@ -14,29 +13,16 @@ import fs from 'fs';
 import path from 'path';
 import { PATHS } from './constants.js';
 
-const LOG_LEVELS = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-};
-
 // 延迟求值：首次写日志时才读配置，避免循环依赖
 let resolved = false;
-let isEnabled = false;
-let minLevel = LOG_LEVELS.info;
+let debugEnabled = false;
 let mirrorToStderr = false;
 
 function resolve() {
   if (resolved) return;
   resolved = true;
 
-  const envLog = process.env.OPENTEAM_LOG;
-  const envLevel = process.env.OPENTEAM_LOG_LEVEL;
-
-  isEnabled = !!envLog && envLog !== '';
-  const levelStr = envLevel || 'info';
-  minLevel = LOG_LEVELS[levelStr] ?? LOG_LEVELS.info;
+  debugEnabled = process.env.OPENTEAM_DEBUG === '1';
   mirrorToStderr = process.env.OPENTEAM_LOG_STDERR === '1';
 }
 
@@ -71,9 +57,8 @@ function writeToFile(formatted) {
 
 function log(level, module, message, data = null) {
   resolve();
-  // error 始终记录，其余需要 OPENTEAM_LOG=1
-  if (!isEnabled && level !== 'error') return;
-  if (LOG_LEVELS[level] < minLevel) return;
+  // debug 需要 OPENTEAM_DEBUG=1，其余默认写入
+  if (level === 'debug' && !debugEnabled) return;
 
   const formatted = formatMessage(level, module, message, data);
   writeToFile(formatted);

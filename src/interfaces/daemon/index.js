@@ -26,9 +26,6 @@ const HEALTH_CHECK_INTERVAL = 10000;
 export async function runDaemon(teamName, projectDir, options = {}) {
   // 标记 daemon 进程，logger 据此跳过 console.error（避免破坏 blessed TUI）
   process.env.OPENTEAM_DAEMON = '1';
-  // daemon 及其子进程（wrapper）默认启用日志
-  if (!process.env.OPENTEAM_LOG) process.env.OPENTEAM_LOG = '1';
-
   // ── 校验 ──
   const validation = validateTeamConfig(teamName);
   if (!validation.valid) {

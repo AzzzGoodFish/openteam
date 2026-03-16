@@ -45,6 +45,10 @@ export class ClaudeCodeAdapter extends BaseAdapter {
     };
   }
 
+  buildToolGuide() {
+    return 'Use the openteam MCP server tools: msg (messaging) and taskboard (task management).';
+  }
+
   getMcpConfigPath(projectDir, agent) {
     // 用临时目录避免污染项目的 .mcp.json（可能有用户自己的 MCP 配置）
     // 每个 agent 独立文件，避免多 agent 覆盖冲突
