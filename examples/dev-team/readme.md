@@ -32,45 +32,23 @@ Each role has skills that guide its workflow stages:
 
 - **PM**: `requirement-clarification`, `prd-generation`, `system-discovery`
 - **Architect**: `codebase-mapping`, `implementation-planning`, `architecture-review`
+- **Developer**: `incremental-implementation`, `self-verification`
 - **QA**: `test-plan-design`, `acceptance-testing`, `bug-reporting`
 
 ## Deployment
 
-### 1) Copy team config and agent prompts
+### 1) Install the team
 
 ```bash
-# Create team directory
-mkdir -p ~/.opencode/agents/<team-name>
-
-# Copy team config (edit "name" field to match your team name)
-cp team.json ~/.opencode/agents/<team-name>/
-
-# Copy agent prompts into the team directory
-cp pm.md architect.md developer.md qa.md ~/.opencode/agents/<team-name>/
+openteam setup dev-team
 ```
 
-Agent prompts live in the team directory alongside `team.json`.
+This copies agent prompts to `~/.openteam/agents/`, skills to `~/.openteam/skills/`, and team config to `~/.openteam/teams/<team-name>/team.json`.
 
-### 2) Install skills
-
-```bash
-cp -r skills/* ~/.opencode/skills/
-```
-
-### 3) Configure OpenCode plugin
-
-Add to `~/.opencode/opencode.json`:
-
-```json
-{
-  "plugin": ["openteam"]
-}
-```
-
-### 4) Start the team
+### 2) Start the team
 
 ```bash
 openteam start <team-name>
 ```
 
-This launches the daemon, serve process, and enters the PM (leader) session.
+This launches the daemon, server, and agent panes in a tmux/zellij session.

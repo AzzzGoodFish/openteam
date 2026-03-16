@@ -1,6 +1,6 @@
 {
   "name": "openteam",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Agent-centric team collaboration framework",
   "type": "module",
   "bin": {
