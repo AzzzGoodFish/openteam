@@ -31,7 +31,7 @@ import os from 'os';
 import path from 'path';
 import * as pty from 'node-pty';
 import { createAdapter } from '../adapters/base.js';
-import { PATHS } from '../foundation/constants.js';
+import { PATHS, FILES, getTeamDir } from '../foundation/constants.js';
 import { createLogger } from '../foundation/logger.js';
 
 const log = createLogger('wrapper');
@@ -302,6 +302,18 @@ function cleanupTempFile(filePath) {
 
 // ── 系统提示词 ──
 
+function loadTeamPrompt(team) {
+  const promptPath = path.join(getTeamDir(team), FILES.TEAM_PROMPT);
+  try {
+    if (fs.existsSync(promptPath)) {
+      return fs.readFileSync(promptPath, 'utf-8').trim();
+    }
+  } catch {
+    log.warn('wrapper.team-prompt.read-failed', { path: promptPath });
+  }
+  return null;
+}
+
 function buildSystemPrompt(agent, team, agents, cliType, adapter) {
   const teammates = agents.filter(a => a !== agent);
   const lines = [
@@ -320,6 +332,12 @@ function buildSystemPrompt(agent, team, agents, cliType, adapter) {
 
   // adapter 提供 CLI 特定的工具调用指引
   lines.push('', adapter.buildToolGuide());
+
+  // team 级别提示词（协作规范）
+  const teamPrompt = loadTeamPrompt(team);
+  if (teamPrompt) {
+    lines.push('', teamPrompt);
+  }
 
   // Claude Code 特有：记忆目录隔离
   if (cliType === 'claude-code') {

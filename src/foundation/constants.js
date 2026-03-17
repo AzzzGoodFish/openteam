@@ -14,6 +14,7 @@ export const PATHS = {
 
 export const FILES = {
   TEAM_CONFIG: 'team.json',
+  TEAM_PROMPT: 'team-prompt.md',
   STATE: '.state.json',
   RUNTIME: '.runtime.json',              // 迁移兼容用
   TASKS: '.tasks.json',
