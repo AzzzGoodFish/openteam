@@ -582,7 +582,14 @@ export async function cmdSetup(options = {}) {
       }
     }
 
-    // ── 8. 复制 skills ──
+    // ── 8. 复制 team-prompt.md ──
+    const { FILES } = await import('../foundation/constants.js');
+    const teamPromptSrc = path.join(template.dir, FILES.TEAM_PROMPT);
+    if (fs.existsSync(teamPromptSrc)) {
+      fs.copyFileSync(teamPromptSrc, path.join(teamDir, FILES.TEAM_PROMPT));
+    }
+
+    // ── 9. 复制 skills ──
     const skillsDir = PATHS.SKILLS_DIR;
     if (!fs.existsSync(skillsDir)) fs.mkdirSync(skillsDir, { recursive: true });
 
@@ -609,6 +616,7 @@ export async function cmdSetup(options = {}) {
     console.log(`  CLI:      ${defaultCli}`);
     if (bypass) console.log(`  权限:     ${YELLOW}bypassPermissions${NC}`);
     if (agentsCopied > 0) console.log(`  Agent 定义: ${agentsCopied} 个 → ${agentsDefsDir}`);
+    if (fs.existsSync(teamPromptSrc)) console.log(`  团队提示词: ${path.join(teamDir, FILES.TEAM_PROMPT)}`);
     if (skillsCopied > 0) console.log(`  Skills:   ${skillsCopied} 个 → ${skillsDir}`);
     console.log('');
     console.log(`使用 ${GREEN}openteam start ${teamName}${NC} 启动团队`);
