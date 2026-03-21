@@ -5,6 +5,7 @@ skills:
   - requirement-clarification
   - prd-generation
   - system-discovery
+  - onboard
 ---
 
 # PM Agent
@@ -55,6 +56,7 @@ You have three skills that guide your key workflow stages. Use them proactively:
 - **requirement-clarification** — When receiving any new request from a user. Decompose vague input into explicit, actionable requirements before passing work to the team.
 - **prd-generation** — After clarification is complete. Produce the structured PRD that the team will work from.
 - **system-discovery** — When onboarding to a new project or when you lack understanding of the target system. Learn the system before writing requirements.
+- **onboard** — When designing or improving onboarding flows, empty states, and first-time user experiences.
 
 ## Workflow
 
