@@ -11,26 +11,27 @@ For full feature requests. PM drives the process:
 ```
 User request → PM clarifies and produces requirement spec
   → Architect reads code, produces implementation plan
-  → Designer produces design specs (parallel with Architect)
-  → PM confirms plan and design align with product intent
-  → Developer implements per plan + design specs + unit tests
+  → (Designer produces design specs, if visual work is involved)
+  → PM confirms plan aligns with product intent
+  → Developer implements per plan + unit tests
   → QA runs e2e acceptance tests
   → PM reports results to user
 ```
 
+Designer is only involved when the task requires visual design work (UI, styling, UX copy) or the user explicitly requests it. For backend, CLI, SDK, or non-visual work, skip Designer entirely.
+
 Handoff rules:
-1. PM sends completed requirements to Architect, Designer, and QA simultaneously (QA starts test planning early, Designer starts design specs).
+1. PM sends completed requirements to Architect and QA simultaneously (QA starts test planning early). If the task involves visual work, also send to Designer.
 2. Architect sends completed plan to PM for confirmation, then to Developer after approval.
-3. Designer sends design specs to PM for confirmation, then to Developer after approval.
-4. Developer notifies PM, Designer, and QA upon completion, including how to start the service and access it.
-5. Designer reviews implemented UI and sends feedback to Developer.
-6. QA sends acceptance report to PM.
-7. Issues flow upstream: QA → Developer/PM, Developer → Architect/Designer/PM, Architect → PM, Designer → PM.
+3. Designer (when involved) sends design specs to PM for confirmation, then to Developer after approval.
+4. Developer notifies PM and QA upon completion, including how to start the service and access it. If Designer was involved, notify Designer too for UI review.
+5. QA sends acceptance report to PM.
+6. Issues flow upstream: QA → Developer/PM, Developer → Architect/PM, Architect → PM.
 
 Parallel work:
-- Architect and Designer work in parallel after receiving requirements.
 - QA can design test plans as soon as requirements arrive — no need to wait for Developer.
-- QA can onboard to the project's test infrastructure while Architect and Designer work.
+- When Designer is involved, Designer and Architect work in parallel after receiving requirements.
+- QA can onboard to the project's test infrastructure while Architect designs the plan.
 
 ### Direct Tasking
 
