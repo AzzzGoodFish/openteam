@@ -1,6 +1,6 @@
 /**
  * Daemon 的 pane 生命周期管理
- * 创建 agent pane、健康检查、dead pane respawn
+ * 创建 agent pane（每个运行 wrapper）、健康检查、dead pane respawn
  */
 
 import { execSync } from 'child_process';
@@ -11,13 +11,12 @@ import {
   listPanes,
   respawnPane,
 } from '../../foundation/terminal.js';
-import { getAgentInstances } from '../../foundation/state.js';
 import { createLogger } from '../../foundation/logger.js';
 
 const log = createLogger('daemon:panes');
 
 /**
- * 为所有 agent 创建 pane
+ * 为所有 agent 创建 pane（每个 pane 运行 wrapper）
  *
  * zellij: 一个 stacked tab，所有 agent 折叠在一起，leader 默认展开
  * tmux:   每个 agent 一个 window（无 stacked 概念）
@@ -25,29 +24,25 @@ const log = createLogger('daemon:panes');
  * @param {string} mux - 复用器类型
  * @param {string} sessionName - mux session 名
  * @param {string[]} agents - agent 列表
- * @param {string} serveUrl - serve URL
- * @param {Map<string, string>} sessionMap - agentName → sessionId
+ * @param {object} wrapperOptions - wrapper 所需的环境信息
+ * @param {string} wrapperOptions.serverUrl - openteam server 地址
+ * @param {string} wrapperOptions.teamName - 团队名称
+ * @param {string} wrapperOptions.projectDir - 项目目录
+ * @param {string} wrapperOptions.cliType - CLI 类型（claude-code / opencode）
  * @param {object} [options]
  * @param {string} [options.leaderName] - leader 名称（zellij stacked 模式下默认展开）
  */
-export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionMap, options = {}) {
+export function createAllAgentPanes(mux, sessionName, agents, wrapperOptions, options = {}) {
   const { leaderName } = options;
 
   if (mux === 'zellij') {
     // zellij: 所有 agent 放入一个 stacked tab，leader 默认展开
-    const panes = [];
-    for (const agent of agents) {
-      const sessionId = sessionMap.get(agent);
-      if (!sessionId) {
-        log.warn(`skip pane for ${agent}: no session`);
-        continue;
-      }
-      panes.push({
-        name: agent,
-        cmd: buildAttachCmd(serveUrl, sessionId),
-        expanded: agent === leaderName,
-      });
-    }
+    const panes = agents.map(agent => ({
+      name: agent,
+      cmd: buildWrapperCmd(agent, wrapperOptions, { mux, sessionName }),
+      expanded: agent === leaderName,
+    }));
+
     if (panes.length > 0) {
       const ok = addStackedTab(sessionName, 'team', panes);
       if (ok) {
@@ -59,15 +54,10 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
     return;
   }
 
-  // tmux: 保持现有逻辑 — 每个 agent 一个 window
+  // tmux: 每个 agent 一个 window
   let first = true;
   for (const agent of agents) {
-    const sessionId = sessionMap.get(agent);
-    if (!sessionId) {
-      log.warn(`skip pane for ${agent}: no session`);
-      continue;
-    }
-    const cmd = buildAttachCmd(serveUrl, sessionId);
+    const cmd = buildWrapperCmd(agent, wrapperOptions, { mux, sessionName });
 
     // 第一个 agent 开新 window，与 daemon pane 0 隔离
     if (first) {
@@ -97,7 +87,7 @@ export function createAllAgentPanes(mux, sessionName, agents, serveUrl, sessionM
  * 健康检查：检测 dead pane 并 respawn
  * @returns {{ checked: number, respawned: number }}
  */
-export function checkAndRespawn(mux, sessionName, teamName, projectDir, serveUrl) {
+export function checkAndRespawn(mux, sessionName, wrapperOptions) {
   const panes = listPanes(mux, sessionName);
   let checked = 0;
   let respawned = 0;
@@ -108,16 +98,13 @@ export function checkAndRespawn(mux, sessionName, teamName, projectDir, serveUrl
     checked++;
 
     if (!pane.alive) {
-      log.warn(`dead pane detected: ${pane.name || pane.id}`);
       const agentName = pane.name;
-      const instances = getAgentInstances(teamName, projectDir, agentName);
-      if (instances.length > 0) {
-        const cmd = buildAttachCmd(serveUrl, instances[0].sessionId);
-        const ok = respawnPane(mux, sessionName, pane.id, cmd);
-        if (ok) {
-          log.info(`respawned pane for ${agentName}`);
-          respawned++;
-        }
+      log.warn(`dead pane detected: ${agentName || pane.id}`);
+      const cmd = buildWrapperCmd(agentName, wrapperOptions, { mux, sessionName });
+      const ok = respawnPane(mux, sessionName, pane.id, cmd);
+      if (ok) {
+        log.info(`respawned pane for ${agentName}`);
+        respawned++;
       }
     }
   }
@@ -126,8 +113,66 @@ export function checkAndRespawn(mux, sessionName, teamName, projectDir, serveUrl
 }
 
 /**
- * 构建 opencode attach 命令
+ * 构建 wrapper 启动命令
+ *
+ * wrapper 通过环境变量获取所有配置，无需命令行参数。
+ * 环境变量在 pane 启动命令中通过 env 前缀设置。
+ *
+ * @param {string} agent - agent 名称
+ * @param {object} wrapperOptions - wrapper 环境信息
+ * @param {object} muxInfo - { mux, sessionName }
+ * @returns {string} shell 命令
  */
-function buildAttachCmd(serveUrl, sessionId) {
-  return `opencode attach "${serveUrl}" -s "${sessionId}"`;
+export function buildWrapperCmd(agent, wrapperOptions, muxInfo) {
+  const { serverUrl, teamName, projectDir, cliType, keepDefaultSP } = wrapperOptions;
+  const agents = wrapperOptions.agents || [];
+  const cliArgs = wrapperOptions.cliArgs || [];
+  const { mux, sessionName } = muxInfo;
+
+  // 环境变量通过 env 命令设置（避免 export 语法差异）
+  const envVars = [
+    `OPENTEAM_SERVER_URL=${serverUrl}`,
+    `OPENTEAM_AGENT=${agent}`,
+    `OPENTEAM_TEAM=${teamName}`,
+    `OPENTEAM_PROJECT_DIR=${projectDir}`,
+    `OPENTEAM_CLI=${cliType}`,
+    `OPENTEAM_AGENTS=${agents.join(',')}`,
+    `OPENTEAM_MUX=${mux}`,
+    `OPENTEAM_SESSION=${sessionName}`,
+  ];
+  if (cliArgs.length > 0) {
+    envVars.push(`OPENTEAM_CLI_ARGS='${JSON.stringify(cliArgs)}'`);
+  }
+  if (keepDefaultSP) {
+    envVars.push('OPENTEAM_KEEP_DEFAULT_SP=1');
+  }
+
+  // wrapper 入口：node bin/openteam.js wrapper
+  const wrapperBin = 'openteam wrapper';
+
+  return `env ${envVars.join(' ')} ${wrapperBin}`;
+}
+
+/**
+ * 从 teamConfig 构建 wrapperOptions — 唯一入口，消除重复构建
+ *
+ * @param {object} teamConfig - 团队配置
+ * @param {object} runtime - 运行时信息
+ * @param {string} runtime.serverUrl
+ * @param {string} runtime.teamName
+ * @param {string} runtime.projectDir
+ * @param {string} runtime.cliType
+ * @returns {object} wrapperOptions
+ */
+export function buildWrapperOptions(teamConfig, { serverUrl, teamName, projectDir, cliType }) {
+  const cliConf = teamConfig.cli_config?.[cliType] || {};
+  return {
+    serverUrl,
+    teamName,
+    projectDir,
+    cliType,
+    agents: teamConfig.agents,
+    cliArgs: cliConf.args || [],
+    keepDefaultSP: !!cliConf.keep_default_system_prompt,
+  };
 }

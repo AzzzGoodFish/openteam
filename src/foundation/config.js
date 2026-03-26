@@ -71,16 +71,17 @@ export function isAgentInTeam(teamName, agentName) {
 
 /**
  * List all teams
+ * 扫描 ~/.openteam/teams/ 下含 team.json 的目录
  */
 export function listTeams() {
-  if (!fs.existsSync(PATHS.AGENTS_DIR)) return [];
+  if (!fs.existsSync(PATHS.TEAMS_DIR)) return [];
 
-  const entries = fs.readdirSync(PATHS.AGENTS_DIR, { withFileTypes: true });
+  const entries = fs.readdirSync(PATHS.TEAMS_DIR, { withFileTypes: true });
   const teams = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const teamConfigPath = path.join(PATHS.AGENTS_DIR, entry.name, FILES.TEAM_CONFIG);
+    const teamConfigPath = path.join(PATHS.TEAMS_DIR, entry.name, FILES.TEAM_CONFIG);
     if (fs.existsSync(teamConfigPath)) {
       teams.push(entry.name);
     }

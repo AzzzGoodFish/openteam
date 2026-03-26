@@ -4,7 +4,7 @@
  * 最小 smoke 验证 — 发布前基础检查
  *
  * 覆盖：
- * 1. 源码模块 import（plugin 入口 + 各层关键模块）
+ * 1. 源码模块 import（各层关键模块）
  * 2. CLI --help 可运行
  * 3. list 命令可运行
  */
@@ -86,10 +86,6 @@ async function checkAsync(name, fn) {
 console.log('OpenTeam smoke test\n');
 
 // 1. 模块 import
-await checkAsync('import: plugin entry (src/index.js)', async () => {
-  await import('../src/index.js');
-});
-
 await checkAsync('import: foundation/constants', async () => {
   await import('../src/foundation/constants.js');
 });
@@ -102,16 +98,24 @@ await checkAsync('import: foundation/state', async () => {
   await import('../src/foundation/state.js');
 });
 
-await checkAsync('import: foundation/opencode', async () => {
-  await import('../src/foundation/opencode.js');
+await checkAsync('import: foundation/tasks', async () => {
+  await import('../src/foundation/tasks.js');
 });
 
-await checkAsync('import: capabilities/lifecycle', async () => {
-  await import('../src/capabilities/lifecycle.js');
+await checkAsync('import: capabilities/taskboard', async () => {
+  await import('../src/capabilities/taskboard.js');
 });
 
-await checkAsync('import: capabilities/messaging', async () => {
-  await import('../src/capabilities/messaging.js');
+await checkAsync('import: server/hub', async () => {
+  await import('../src/server/hub.js');
+});
+
+await checkAsync('import: server/index', async () => {
+  await import('../src/server/index.js');
+});
+
+await checkAsync('import: adapters/base', async () => {
+  await import('../src/adapters/base.js');
 });
 
 // 2. CLI --help

@@ -1,10 +1,14 @@
 /**
  * Dashboard data fetching logic
+ *
+ * v2: 数据源从 opencode API 切换到 openteam server REST API
+ * - Agent 状态: GET /api/status
+ * - 任务列表: GET /api/tasks
+ * - 消息流: 暂无持久化历史，从 hub status 推断
  */
 
-import { getRuntime, getServeUrl, loadActiveSessions } from '../../foundation/state.js';
+import { getRuntime } from '../../foundation/state.js';
 import { loadTeamConfig } from '../../foundation/config.js';
-import { sessionExists, fetchSession, fetchMessages } from '../../foundation/opencode.js';
 import { loadTasks } from '../../foundation/tasks.js';
 
 /**
@@ -25,136 +29,102 @@ export async function fetchTeamStatus(teamName, projectDir) {
 
   return {
     running: true,
-    url: getServeUrl(teamName, projectDir),
-    pid: runtime.servePid,
+    url: runtime.server ? `http://${runtime.server.host}:${runtime.server.port}` : 'N/A',
+    daemonPid: runtime.daemonPid || 'N/A',
     leader,
-    projectDir: runtime.projectDir || 'N/A',
+    projectDir: runtime.projectDir || projectDir || 'N/A',
     started: runtime.started,
   };
 }
 
 /**
  * 获取 Agent 状态数据
+ *
+ * 从 server REST API /api/status 获取 agent 在线状态。
+ * 返回格式与旧版兼容（UI 不需要改）。
  */
 export async function fetchAgentStatus(teamName, projectDir, serveUrl) {
-  const activeSessions = loadActiveSessions(teamName, projectDir);
-  const agentStatuses = [];
+  try {
+    const res = await fetch(`${serveUrl}/api/status`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const status = data.status || {};
 
-  for (const [agent, instances] of Object.entries(activeSessions)) {
-    for (const inst of instances) {
-      try {
-        const exists = await sessionExists(serveUrl, inst.sessionId);
-        const session = exists ? await fetchSession(serveUrl, inst.sessionId) : null;
-        const activity = exists ? await detectAgentActivity(serveUrl, inst.sessionId) : 'idle';
+    // 补充团队中所有 agent（即使未注册的也显示为 offline）
+    const teamConfig = loadTeamConfig(teamName);
+    const agents = teamConfig?.agents || [];
 
-        agentStatuses.push({
-          name: agent,
-          sessionId: inst.sessionId,
-          cwd: inst.cwd || 'N/A',
-          online: exists,
-          title: session?.title || 'Unknown',
-          activity,
-        });
-      } catch (err) {
-        agentStatuses.push({
-          name: agent,
-          sessionId: inst.sessionId,
-          cwd: inst.cwd || 'N/A',
-          online: false,
-          title: 'Error',
-          activity: 'idle',
-          error: err.message,
-        });
-      }
-    }
+    return agents.map(agent => {
+      const info = status[agent];
+      return {
+        name: agent,
+        online: info?.online || false,
+        active: info?.active || false,
+        pending: info?.pending || 0,
+      };
+    });
+  } catch {
+    // server 不可达，返回空
+    return [];
   }
-
-  return agentStatuses;
 }
 
 /**
  * 获取消息流数据
+ *
+ * v2: 从 hub 消息日志 API 获取真实消息历史。
+ * 回退：API 不可用时降级到任务事件。
  */
 export async function fetchMessageStream(teamName, projectDir, serveUrl, limit = 20) {
+  // 优先从 hub 消息日志获取
   try {
-    const activeSessions = loadActiveSessions(teamName, projectDir);
-    const sessionEntries = [];
-    for (const [agent, instances] of Object.entries(activeSessions)) {
-      for (const inst of instances) {
-        sessionEntries.push({ sessionId: inst.sessionId, agent });
+    const res = await fetch(`${serveUrl}/api/messages/log?limit=${limit}`);
+    if (res.ok) {
+      const data = await res.json();
+      const messages = data.messages || [];
+      if (messages.length > 0) {
+        return messages.map(m => ({
+          timestamp: m.timestamp,
+          from: m.from,
+          to: m.to,
+          content: m.message.replace(/\n/g, ' ').slice(0, 80),
+          fullContent: m.message,
+        }));
+      }
+    }
+  } catch {
+    // API 不可用，降级到任务事件
+  }
+
+  // 降级：用任务事件填充
+  try {
+    const { tasks } = loadTasks(teamName, projectDir);
+    const events = [];
+
+    for (const task of tasks) {
+      if (task.createdAt) {
+        events.push({
+          timestamp: task.createdAt,
+          from: 'system',
+          to: task.assignee,
+          content: `[task #${task.id}] ${task.title}`,
+          fullContent: task.description ? `[task #${task.id}] ${task.title}：${task.description}` : `[task #${task.id}] ${task.title}`,
+        });
+      }
+      if (task.doneAt) {
+        events.push({
+          timestamp: task.doneAt,
+          from: task.assignee,
+          to: 'system',
+          content: `✓ #${task.id} ${task.title}`,
+          fullContent: `[task #${task.id} done] ${task.title}`,
+        });
       }
     }
 
-    if (sessionEntries.length === 0) return [];
-
-    const allMessages = [];
-
-    for (const { sessionId, agent } of sessionEntries) {
-      try {
-        const messages = await fetchMessages(serveUrl, sessionId);
-        if (!messages) continue;
-
-        for (const msg of messages) {
-          const role = msg.info?.role;
-          const created = msg.info?.time?.created;
-          if (!created) continue;
-          const timestamp = new Date(created).toISOString();
-
-          if (role === 'user') {
-            const text = extractFirstText(msg);
-            if (!text) continue;
-            if (text === '系统初始化完成，准备就绪。') continue;
-
-            const fromMatch = text.match(/^\[from\s+([^\]]+)\]/);
-            const from = fromMatch ? fromMatch[1] : 'boss';
-            const content = text.replace(/^\[from\s+[^\]]+\]\s*/, '');
-            const to = agent;
-
-            allMessages.push({
-              timestamp,
-              from,
-              to,
-              content: content.slice(0, 200),
-              fullContent: content,
-            });
-          } else if (role === 'assistant') {
-            const toolParts = msg.parts?.filter(p => p.type === 'tool') || [];
-            for (const t of toolParts) {
-              if (t.tool !== 'msg') continue;
-              const input = t.state?.input;
-              if (!input?.message) continue;
-
-              const toolTime = t.state?.time?.start;
-              const toolTs = toolTime ? new Date(toolTime).toISOString() : timestamp;
-
-              allMessages.push({
-                timestamp: toolTs,
-                from: agent,
-                to: input.who || input.to || '?',
-                content: input.message.slice(0, 200),
-                fullContent: input.message,
-              });
-            }
-          }
-        }
-      } catch (err) {
-        // 忽略单个会话的错误
-      }
-    }
-
-    // 去重
-    const seen = new Set();
-    const deduped = allMessages.filter(m => {
-      const key = `${m.from}:${m.content.slice(0, 30)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    deduped.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    return deduped.slice(-limit);
-  } catch (err) {
+    events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    return events.slice(-limit);
+  } catch {
     return [];
   }
 }
@@ -165,42 +135,4 @@ export async function fetchMessageStream(teamName, projectDir, serveUrl, limit =
 export function fetchTaskBoard(teamName, projectDir) {
   const { tasks } = loadTasks(teamName, projectDir);
   return tasks;
-}
-
-/**
- * 检测 agent 活动状态
- *
- * 规则（基于最后一条消息）：
- * - 无消息 → idle（刚创建）
- * - assistant + finish → idle（待机，已完成回复）
- * - assistant 无 finish → outputting（输出中，正在生成）
- * - user → thinking（思考中，等待模型响应）
- */
-async function detectAgentActivity(serveUrl, sessionId) {
-  try {
-    const messages = await fetchMessages(serveUrl, sessionId);
-    if (!messages || messages.length === 0) return 'idle';
-
-    const last = messages[messages.length - 1];
-    const role = last.info?.role;
-
-    if (role === 'user') return 'thinking';
-    if (role === 'assistant') {
-      return last.info?.finish ? 'idle' : 'outputting';
-    }
-    return 'idle';
-  } catch {
-    return 'idle';
-  }
-}
-
-/**
- * 从消息对象中提取第一段文本
- */
-function extractFirstText(msg) {
-  if (msg.parts && Array.isArray(msg.parts)) {
-    const textPart = msg.parts.find(p => p.type === 'text' && p.text);
-    return textPart?.text || '';
-  }
-  return '';
 }

@@ -1,19 +1,29 @@
 /**
  * 任务看板 — 创建/完成/依赖检查/自动通知
+ *
+ * 通知通过 hub.deliver() 投递到消息队列，由 wrapper 轮询取走注入 CLI。
  */
 
 import { loadTasks, saveTasks } from '../foundation/tasks.js';
-import { deliverMessage } from './messaging.js';
 import { isAgentInTeam, getTeamLeader } from '../foundation/config.js';
 import { createLogger } from '../foundation/logger.js';
 
 const log = createLogger('taskboard');
 
 /**
- * 创建任务（仅 leader 可调，权限校验由 tools.js 负责）
+ * 创建任务（仅 leader 可调，权限校验由 mcp.js 负责）
+ * @param {object} params
+ * @param {string} params.teamName
+ * @param {string} params.projectDir
+ * @param {MessageHub} params.hub - 消息中枢
+ * @param {string} params.title
+ * @param {string} params.description
+ * @param {string} params.assignee
+ * @param {number[]} params.dependsOn
+ * @param {string} params.trace
  * @returns {{ ok: true, task: object, triggered: string[] } | { ok: false, error: string }}
  */
-export async function createTask({ teamName, projectDir, serveUrl, title, description, assignee, dependsOn = [], trace }) {
+export async function createTask({ teamName, projectDir, hub, title, description, assignee, dependsOn = [], trace }) {
   // 1. 校验 assignee 在团队中
   if (!isAgentInTeam(teamName, assignee)) {
     return { ok: false, error: `团队中没有 "${assignee}"` };
@@ -45,16 +55,23 @@ export async function createTask({ teamName, projectDir, serveUrl, title, descri
   log.info('task.created', { trace, id: task.id, title, assignee, dependsOn });
 
   // 4. 检查依赖是否已满足，满足则通知
-  const triggered = await notifyIfReady(task, data.tasks, teamName, projectDir, serveUrl, trace);
+  const triggered = notifyIfReady(task, data.tasks, hub, trace);
 
   return { ok: true, task, triggered };
 }
 
 /**
  * 完成任务
+ * @param {object} params
+ * @param {string} params.teamName
+ * @param {string} params.projectDir
+ * @param {MessageHub} params.hub - 消息中枢
+ * @param {string} params.agentName
+ * @param {number} params.taskId
+ * @param {string} params.trace
  * @returns {{ ok: true, task: object, triggered: string[] } | { ok: false, error: string }}
  */
-export async function completeTask({ teamName, projectDir, serveUrl, agentName, taskId, trace }) {
+export async function completeTask({ teamName, projectDir, hub, agentName, taskId, trace }) {
   const data = loadTasks(teamName, projectDir);
   const task = data.tasks.find(t => t.id === taskId);
 
@@ -74,7 +91,7 @@ export async function completeTask({ teamName, projectDir, serveUrl, agentName, 
   for (const t of data.tasks) {
     if (t.status !== 'pending') continue;
     if (t.dependsOn.length === 0) continue;
-    if (!t.dependsOn.includes(taskId)) continue; // 不依赖刚完成的任务，跳过
+    if (!t.dependsOn.includes(taskId)) continue;
 
     const allDone = t.dependsOn.every(depId => {
       const dep = data.tasks.find(d => d.id === depId);
@@ -82,7 +99,7 @@ export async function completeTask({ teamName, projectDir, serveUrl, agentName, 
     });
 
     if (allDone) {
-      const result = await notifyAssignee(t, teamName, projectDir, serveUrl, trace);
+      const result = notifyAssignee(t, hub, trace);
       triggered.push(`#${t.id} ${t.title} → ${t.assignee} (${result})`);
     }
   }
@@ -92,7 +109,7 @@ export async function completeTask({ teamName, projectDir, serveUrl, agentName, 
   if (leader && leader !== agentName) {
     const leaderMsg = `[task #${taskId} done] ${task.title} — ${agentName} 已完成`;
     try {
-      await deliverMessage({ to: leader, message: leaderMsg, teamName, projectDir, serveUrl, trace });
+      hub.deliver({ from: agentName, to: leader, message: leaderMsg });
     } catch (err) {
       log.warn('notifyLeader failed', { trace, taskId, leader, error: err.message });
     }
@@ -114,10 +131,10 @@ export function listTasks(teamName, projectDir) {
 /**
  * 检查任务依赖是否满足，满足则通知 assignee
  */
-async function notifyIfReady(task, allTasks, teamName, projectDir, serveUrl, trace) {
+function notifyIfReady(task, allTasks, hub, trace) {
   if (task.dependsOn.length === 0) {
     // 无依赖，立即通知
-    const result = await notifyAssignee(task, teamName, projectDir, serveUrl, trace);
+    const result = notifyAssignee(task, hub, trace);
     return [`#${task.id} ${task.title} → ${task.assignee} (${result})`];
   }
 
@@ -127,7 +144,7 @@ async function notifyIfReady(task, allTasks, teamName, projectDir, serveUrl, tra
   });
 
   if (allDone) {
-    const result = await notifyAssignee(task, teamName, projectDir, serveUrl, trace);
+    const result = notifyAssignee(task, hub, trace);
     return [`#${task.id} ${task.title} → ${task.assignee} (${result})`];
   }
 
@@ -137,13 +154,14 @@ async function notifyIfReady(task, allTasks, teamName, projectDir, serveUrl, tra
 /**
  * 发送任务就绪通知（通知失败不影响任务操作本身）
  */
-async function notifyAssignee(task, teamName, projectDir, serveUrl, trace) {
+function notifyAssignee(task, hub, trace) {
   const message = task.description
     ? `[task #${task.id}] ${task.title}：${task.description}`
     : `[task #${task.id}] ${task.title}`;
 
   try {
-    return await deliverMessage({ to: task.assignee, message, teamName, projectDir, serveUrl, trace });
+    const result = hub.deliver({ from: 'system', to: task.assignee, message });
+    return `${task.assignee}: ${result.online ? 'delivered' : 'queued'}`;
   } catch (err) {
     log.warn('notifyAssignee failed', { trace, taskId: task.id, assignee: task.assignee, error: err.message });
     return `${task.assignee}: 通知失败 (${err.message})`;

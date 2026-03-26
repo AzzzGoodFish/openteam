@@ -9,6 +9,53 @@ let _currentMessages = [];
 let _currentTasks = [];
 let _lastFocused = null;
 
+/**
+ * 计算字符串的终端显示宽度（CJK 字符占 2 列）
+ */
+function displayWidth(str) {
+  let w = 0;
+  for (const ch of str) {
+    const code = ch.codePointAt(0);
+    // CJK Unified Ideographs + CJK 标点等常见双宽字符范围
+    if (
+      (code >= 0x2E80 && code <= 0x9FFF) ||   // CJK 基本 + 扩展
+      (code >= 0xF900 && code <= 0xFAFF) ||   // CJK 兼容
+      (code >= 0xFE30 && code <= 0xFE4F) ||   // CJK 兼容形式
+      (code >= 0xFF01 && code <= 0xFF60) ||   // 全角 ASCII
+      (code >= 0xFFE0 && code <= 0xFFE6) ||   // 全角符号
+      (code >= 0x20000 && code <= 0x2FA1F)    // CJK 扩展 B-F
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+/**
+ * 按终端显示宽度截断字符串
+ */
+function truncateToWidth(str, maxWidth) {
+  let w = 0;
+  let i = 0;
+  for (const ch of str) {
+    const code = ch.codePointAt(0);
+    const charW = (
+      (code >= 0x2E80 && code <= 0x9FFF) ||
+      (code >= 0xF900 && code <= 0xFAFF) ||
+      (code >= 0xFE30 && code <= 0xFE4F) ||
+      (code >= 0xFF01 && code <= 0xFF60) ||
+      (code >= 0xFFE0 && code <= 0xFFE6) ||
+      (code >= 0x20000 && code <= 0x2FA1F)
+    ) ? 2 : 1;
+    if (w + charW > maxWidth) break;
+    w += charW;
+    i += ch.length;
+  }
+  return str.slice(0, i);
+}
+
 // Agent 颜色映射（按首次出现顺序轮转）
 const AGENT_COLORS = ['green', 'cyan', 'magenta', 'blue', 'yellow', 'red'];
 const _colorCache = new Map();
@@ -308,8 +355,8 @@ export function updateTeamStatus(box, teamStatus) {
 
   const content = [
     `{green-fg}● 运行中{/green-fg}`,
-    `Serve URL:  ${teamStatus.url}`,
-    `PID:        ${teamStatus.pid}`,
+    `Server:     ${teamStatus.url}`,
+    `Daemon PID: ${teamStatus.daemonPid}`,
     `Leader:     ${teamStatus.leader}`,
     `项目目录:   ${teamStatus.projectDir}`,
     `启动时间:   ${teamStatus.started}`,
@@ -321,11 +368,11 @@ export function updateTeamStatus(box, teamStatus) {
 /**
  * 更新 Agent 状态
  *
+ * v2 数据格式：{ name, online, pending, activity }
  * 活动指示器：
- *   ● 待机   (green)  — idle，已完成回复或刚创建
- *   ● 思考中 (yellow) — thinking，收到消息等待模型响应
- *   ● 输出中 (cyan)   — outputting，模型正在生成回复
- *   ○ 离线   (red)    — offline，会话不存在
+ *   ● 待机   (green)  — 在线，无待处理消息
+ *   ● 思考中 (yellow) — 在线，有待处理消息
+ *   ○ 离线   (red)    — 未注册
  */
 export function updateAgentStatus(box, agentStatuses) {
   if (agentStatuses.length === 0) {
@@ -336,10 +383,9 @@ export function updateAgentStatus(box, agentStatuses) {
   const lines = agentStatuses.map((agent) => {
     const indicator = formatActivity(agent);
     const name = agent.name.padEnd(12);
-    const sessionId = agent.sessionId.slice(0, 8);
-    const cwd = agent.cwd.length > 40 ? '...' + agent.cwd.slice(-37) : agent.cwd;
+    const pending = agent.pending > 0 ? `{yellow-fg}(${agent.pending} pending){/yellow-fg}` : '';
 
-    return `${indicator} ${name} ${sessionId}  ${cwd}`;
+    return `${indicator} ${name} ${pending}`;
   });
 
   box.setContent(lines.join('\n'));
@@ -348,19 +394,15 @@ export function updateAgentStatus(box, agentStatuses) {
 /**
  * 格式化 agent 活动状态指示器
  *
- * 所有变体对齐到 8 个可见列宽（CJK 字符占 2 列）：
- *   "● 待机"   = 6 列 + 2 空格 = 8
- *   "● 思考中" = 8 列 = 8
- *   "● 输出中" = 8 列 = 8
+ * 对齐到 8 个可见列宽（CJK 字符占 2 列）：
+ *   "● 运行中" = 8 列 = 8
+ *   "● 在线"   = 6 列 + 2 空格 = 8
  *   "○ 离线"   = 6 列 + 2 空格 = 8
  */
 function formatActivity(agent) {
   if (!agent.online) return '{red-fg}○ 离线{/red-fg}  ';
-  switch (agent.activity) {
-    case 'thinking':   return '{yellow-fg}● 思考中{/yellow-fg}';
-    case 'outputting': return '{cyan-fg}● 输出中{/cyan-fg}';
-    default:           return '{green-fg}● 待机{/green-fg}  ';
-  }
+  if (agent.active) return '{cyan-fg}● 运行中{/cyan-fg}';
+  return '{green-fg}● 在线{/green-fg}  ';
 }
 
 /**
@@ -374,13 +416,26 @@ export function updateTaskBoard(listBox, tasks) {
     return;
   }
 
+  // 计算标题最大显示宽度，动态对齐
+  const TITLE_COL = 32;
+
   const items = _currentTasks.map(t => {
     const status = t.status === 'done'
       ? '{green-fg}✓{/green-fg}'
       : '{yellow-fg}⏳{/yellow-fg}';
     const id = `#${t.id}`.padEnd(4);
-    const title = t.title.length > 30 ? t.title.slice(0, 27) + '...' : t.title.padEnd(30);
-    const assignee = `→ ${t.assignee}`.padEnd(16);
+
+    // 按终端显示宽度截断和填充标题
+    let title = t.title;
+    let titleWidth = displayWidth(title);
+    if (titleWidth > TITLE_COL) {
+      // 按显示宽度截断，保留 '...'
+      title = truncateToWidth(title, TITLE_COL - 3) + '...';
+      titleWidth = displayWidth(title);
+    }
+    const titlePad = ' '.repeat(Math.max(0, TITLE_COL - titleWidth));
+
+    const assignee = `→ ${t.assignee}`;
 
     let deps = '';
     if (t.status === 'pending' && t.dependsOn.length > 0) {
@@ -389,11 +444,11 @@ export function updateTaskBoard(listBox, tasks) {
         return dep && dep.status !== 'done';
       });
       if (pendingDeps.length > 0) {
-        deps = `{gray-fg}等 ${pendingDeps.map(id => '#' + id).join(',')}{/gray-fg}`;
+        deps = `  {gray-fg}等 ${pendingDeps.map(id => '#' + id).join(',')}{/gray-fg}`;
       }
     }
 
-    return `${id} ${status} ${title} ${assignee} ${deps}`;
+    return `${id} ${status} ${title}${titlePad} ${assignee}${deps}`;
   });
 
   listBox.setItems(items);
@@ -422,7 +477,7 @@ export function updateMessageStream(listBox, messages) {
       ? '{black-fg}{yellow-bg} boss {/}'
       : `{${fromColor}}${msg.from}{/}`;
     const toTag = `{cyan-fg}→ ${msg.to}{/cyan-fg}`;
-    const content = msg.content.replace(/\n/g, ' ').slice(0, 80);
+    const content = msg.content.replace(/^\[from \S+\]\s*/, '').replace(/\n/g, ' ').slice(0, 80);
 
     return `{gray-fg}${time}{/gray-fg} ${fromTag} ${toTag} ${content}`;
   });

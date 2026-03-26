@@ -3,5 +3,5 @@
   "leader": "pm",
   "host": "127.0.0.1",
   "port": 0,
-  "agents": ["pm", "architect", "developer", "qa"]
+  "agents": ["pm", "architect", "designer", "developer", "qa"]
 }

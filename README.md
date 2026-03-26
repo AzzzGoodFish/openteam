@@ -1,189 +1,200 @@
 # OpenTeam
 
-面向 OpenCode 的 Agent 团队协作插件，负责多 Agent 协作、会话编排和多实例管理。
+Agent team collaboration framework. Pluggable CLI backend (Claude Code / OpenCode).
 
-## 核心能力
+## What it does
 
-- Leader-成员协作模型，支持异步消息通信。
-- 同一 agent 支持多实例（不同 `cwd` 下并行运行）。
-- Daemon 统一管理团队生命周期（serve、pane、健康检查）。
-- `dashboard` 实时仪表盘查看团队状态。
+- Multi-agent teams with async messaging (MCP-based)
+- Built-in task board with dependency tracking and auto-notification
+- Daemon manages the full lifecycle: server, agent panes, health checks, respawn
+- Real-time dashboard (embedded TUI)
+- Works with tmux or zellij
 
-## 环境要求
+## Requirements
 
-| 依赖 | 要求 |
-|------|------|
+| Dependency | Version |
+|---|---|
 | Node.js | 18+ |
-| tmux 或 zellij | 任一 |
+| tmux or zellij | any |
 
-## 安装
+## Install
 
 ```bash
 npm install -g openteam
 ```
 
-## 快速开始
+## Quick Start
 
-### 1) 配置 OpenCode 插件
+```bash
+# 1. Install a built-in team template
+openteam setup
 
-在 `~/.opencode/opencode.json` 中添加：
-
-```json
-{
-  "plugin": ["openteam"]
-}
+# 2. Start the team
+openteam start dev
 ```
 
-### 2) 创建团队配置
+`openteam setup` walks you through:
 
-创建 `~/.opencode/agents/<team>/team.json`：
+```
+Available team templates:
+
+  1) dev-team
+     A four-role agent team for software development.
+     agents: pm, architect, developer, qa
+
+Install "dev-team"? (Y/n): Y
+Team name (team1): dev
+Default CLI (claude-code):
+Enable yolo mode? (y/N): y
+
+✓ Team "dev" installed
+
+  Template:   dev-team
+  Config:     ~/.openteam/teams/dev/team.json
+  Leader:     pm
+  Agents:     pm, architect, developer, qa
+  CLI:        claude-code
+  Agent defs: 4 → ~/.openteam/agents
+  Skills:     12 → ~/.openteam/skills
+```
+
+## CLI Commands
+
+| Command | Description |
+|---|---|
+| `openteam setup` | Install a built-in team template (interactive) |
+| `openteam start [team]` | Start team (creates tmux/zellij session + daemon) |
+| `openteam start [team] -d` | Start in background |
+| `openteam list` / `openteam ls` | List running team instances |
+| `openteam list -a` | List all teams (including stopped) |
+| `openteam stop <target>` | Stop team (by name or instance ID) |
+| `openteam inspect <team>` | Show runtime status and agent online state |
+
+The same team can run in multiple project directories simultaneously. Use `--dir` to target a specific instance when ambiguous.
+
+## Team Tools (MCP)
+
+Agents communicate through two MCP tools exposed by the openteam server:
+
+| Tool | Access | Description |
+|---|---|---|
+| `msg` | All agents (leader can broadcast) | Async messaging between agents |
+| `taskboard` | `create`: leader only; `done`/`list`: all | Task management with dependency tracking |
+
+Messages are delivered to agent queues and injected into the CLI via PTY. Offline agents receive messages when they reconnect.
+
+## Example: Dev Team
+
+`examples/dev-team/` provides a complete four-role development team, ready to use.
+
+### Roles
+
+| Agent | Role | Responsibilities |
+|---|---|---|
+| **pm** (leader) | Product Manager | Clarify requirements, write PRDs, coordinate |
+| **architect** | Architect | Read codebase, design implementation plans, review |
+| **developer** | Developer | Implement per plan, write unit tests |
+| **qa** | QA Engineer | Design test plans, run acceptance tests, report bugs |
+
+### Workflow
+
+```
+User request → PM clarifies requirements & writes PRD
+                  ↓                        ↓
+            Architect designs         QA designs test plan
+            implementation plan       (in parallel)
+                  ↓
+            Developer implements + unit tests
+                  ↓
+            QA runs acceptance tests
+                  ↓
+            PM reports results to user
+```
+
+### Built-in Skills
+
+- **PM**: `requirement-clarification`, `prd-generation`, `system-discovery`
+- **Architect**: `codebase-mapping`, `implementation-planning`, `architecture-review`
+- **QA**: `test-plan-design`, `acceptance-testing`, `bug-reporting`
+
+## Configuration
+
+### Team config (`~/.openteam/teams/<team>/team.json`)
 
 ```json
 {
-  "name": "myteam",
+  "name": "dev",
   "leader": "pm",
-  "host": "127.0.0.1",
-  "port": 0,
-  "agents": ["pm", "architect", "developer", "qa"]
+  "agents": ["pm", "architect", "developer", "qa"],
+  "default_cli": "claude-code",
+  "cli_config": {
+    "claude-code": {
+      "args": ["--permission-mode", "bypassPermissions"]
+    }
+  }
 }
 ```
 
-- `leader` 必须包含在 `agents` 中。
-- `port: 0` 表示自动在 `4096-4200` 之间分配可用端口。
+- `leader` must be in `agents`.
+- `cli_config` passes extra arguments to the underlying CLI.
+- `port` (optional): fixed port; default `0` auto-selects from 4096-4200.
 
-### 3) 创建 Agent 提示词
+### Directory layout
 
-在 `~/.opencode/agents/<team>/` 下创建对应角色文件（如 `pm.md`、`developer.md`）。
+```
+~/.openteam/
+├── settings.json                 # Global settings
+├── agents/                       # Agent definitions (shared across teams)
+│   ├── pm.md
+│   ├── architect.md
+│   └── ...
+├── skills/                       # Skill definitions
+│   ├── requirement-clarification/
+│   └── ...
+└── teams/
+    └── <team>/
+        ├── team.json             # Team config
+        └── <hash>/               # Project-scoped runtime state
+            ├── .state.json       # daemon/server/mux state
+            └── .tasks.json       # Task board data
+```
 
-### 4) 启动团队
+Project isolation: `<hash>` = first 8 hex chars of SHA-256(projectDir).
+
+## Architecture
+
+```
+bin/openteam.js              CLI entry (Commander routing)
+
+src/
+├── interfaces/              Who's calling
+│   ├── cli.js               Commands: setup, start, stop, list, inspect
+│   ├── daemon/              Daemon lifecycle (server + panes + health)
+│   └── dashboard/           Embedded TUI (blessed)
+├── server/                  Communication layer
+│   ├── hub.js               In-memory message queue
+│   ├── mcp.js               MCP tools (msg + taskboard)
+│   └── routes.js            REST API (register/messages/status/tasks)
+├── adapters/                CLI abstraction (claude-code / opencode)
+├── wrapper/                 PTY bridge (register → MCP config → spawn CLI → poll)
+├── capabilities/            Business logic (taskboard)
+└── foundation/              Infrastructure (config, state, terminal, logger)
+```
+
+Dependency rule: `Interfaces → Capabilities → Foundation`. No reverse dependencies.
+
+## Debugging
 
 ```bash
-openteam start myteam
-```
-
-## 示例：Dev Team
-
-`examples/dev-team/` 提供了一个完整的四角色开发团队配置，开箱即用。
-
-### 角色
-
-| Agent | 角色 | 职责 |
-|-------|------|------|
-| **pm**（leader） | 产品经理 | 澄清需求、编写 PRD、协调团队 |
-| **architect** | 架构师 | 阅读代码库、设计实现方案、架构评审 |
-| **developer** | 开发者 | 按方案实现代码、编写单元测试 |
-| **qa** | 测试工程师 | 设计测试计划、执行验收测试、提交 Bug |
-
-### 协作流程
-
-```
-用户需求 → PM 澄清需求 & 编写 PRD
-                ↓                        ↓
-          Architect 设计              QA 设计测试计划
-          实现方案                    （并行）
-                ↓
-          Developer 实现 + 单元测试
-                ↓
-          QA 执行验收测试
-                ↓
-          PM 向用户汇报结果
-```
-
-### 内置 Skills
-
-- **PM**: `requirement-clarification`、`prd-generation`、`system-discovery`
-- **Architect**: `codebase-mapping`、`implementation-planning`、`architecture-review`
-- **QA**: `test-plan-design`、`acceptance-testing`、`bug-reporting`
-
-### 部署
-
-```bash
-# 复制团队配置
-mkdir -p ~/.opencode/agents/dev-team
-cp examples/dev-team/team.json ~/.opencode/agents/dev-team/
-
-# 复制角色提示词
-cp examples/dev-team/{pm,architect,developer,qa}.md ~/.opencode/agents/dev-team/
-
-# 安装 skills
-cp -r examples/dev-team/skills/* ~/.opencode/skills/
-
-# 启动
-openteam start dev-team
-```
-
-## CLI 命令
-
-| 命令 | 说明 |
-|------|------|
-| `openteam start [team]` | 启动团队（创建 tmux/zellij session + daemon） |
-| `openteam start [team] -d` | 后台启动 |
-| `openteam start [team] --dir <directory>` | 指定项目目录 |
-| `openteam list` / `openteam ls` | 列出所有已配置团队及运行状态 |
-| `openteam inspect <team>` | 查看运行状态与会话有效性 |
-| `openteam inspect <team> --dir <directory>` | 指定项目目录 |
-| `openteam stop <target>` | 停止团队（SIGTERM daemon） |
-
-同一团队可在不同项目目录启动多个实例。当存在多个实例时，`inspect`、`stop` 需要 `--dir` 指定目标实例。
-
-## 团队工具
-
-| 工具 | 权限 | 说明 |
-|------|------|------|
-| `msg` | 全员可用（仅 leader 可广播） | 异步消息；目标离线会自动唤醒并建会话 |
-| `command` | 仅 leader | `status` / `free` / `redirect` |
-| `taskboard` | create 仅 leader；done/list 全员 | 任务管理：创建、完成、查看。完成后自动通知下游 |
-
-### `command` 行为说明
-
-- `status`: 查看成员实例状态。
-- `free`: 让成员实例下线；若该成员有多个实例，必须指定 `cwd` 或 `alias`。
-- `redirect`: 清空目标成员当前实例后，在新目录创建实例。
-
-## 运行时文件
-
-团队配置和运行时数据分为两级：
-
-```text
-~/.opencode/agents/<team>/
-├── team.json                          # 团队配置（团队级）
-├── <agent>.md                         # agent 提示词（团队级）
-└── <hash>/                            # 项目级状态目录（hash = projectDir 的 SHA-256 前 8 位）
-    ├── .runtime.json                  # daemon/serve/mux 运行状态
-    └── .active-sessions.json          # agent → [{ sessionId, cwd }] 会话映射
-```
-
-- `.runtime.json` 包含 `daemon.pid`、`serve.pid/port/host`、`mux.type/session` 等字段。
-- `.active-sessions.json` 持久化 agent 的多实例会话映射。
-
-## 注意事项
-
-- 插件仅在 `OPENTEAM_TEAM` 环境变量存在时启用，始终通过 `openteam start` 启动。
-- `stop` 向 daemon 发送 SIGTERM；daemon 负责停止 serve 和清理 runtime，CLI 会在 daemon 退出后兜底销毁 mux session。
-
-## 调试与日志
-
-```bash
-# 启用日志
+# Enable logging
 OPENTEAM_LOG=1 openteam start myteam
 
-# 设置日志级别 (debug/info/warn/error)
+# Set log level (debug/info/warn/error)
 OPENTEAM_LOG=1 OPENTEAM_LOG_LEVEL=debug openteam start myteam
 ```
 
-- 日志文件：`~/.openteam/openteam.log`
+Log file: `~/.openteam/openteam.log`
 
-## 上游依赖说明
-
-代码通过 `@opencode-ai/plugin/tool` 子路径导入，绕过上游根入口在 Node ESM 下的扩展名问题。
-
-## 更多文档
-
-- 架构与模块边界：`docs/architecture.md`
-- 开发与验证：`docs/development-guide.md`
-- 示例团队：`examples/dev-team/readme.md`
-- 历史设计记录：`docs/archive/`
-
-## 许可证
+## License
 
 MIT
