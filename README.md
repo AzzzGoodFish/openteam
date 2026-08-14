@@ -1,3 +1,5 @@
+
+
 # OpenTeam
 
 Agent team collaboration framework. Pluggable CLI backend (Claude Code / OpenCode).
@@ -63,8 +65,7 @@ Enable yolo mode? (y/N): y
 | Command | Description |
 |---|---|
 | `openteam setup` | Install a built-in team template (interactive) |
-| `openteam start [team]` | Start team (creates tmux/zellij session + daemon) |
-| `openteam start [team] -d` | Start in background |
+| `openteam start [team] --detach` | Start in background |
 | `openteam list` / `openteam ls` | List running team instances |
 | `openteam list -a` | List all teams (including stopped) |
 | `openteam stop <target>` | Stop team (by name or instance ID) |
